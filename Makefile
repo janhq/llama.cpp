@@ -60,9 +60,9 @@ package:
 ifeq ($(OS),Windows_NT)
 	@powershell -Command "7z a -ttar temp.tar build\bin\*; 7z a -tgzip llama.tar.gz temp.tar;"
 else ifeq ($(shell uname -s),Linux)
-	@tar -czvf llama.tar.gz build\bin;
+	@tar -czvf llama.tar.gz build/bin;
 else
-	@tar -czvf llama.tar.gz build\bin;
+	@tar -czvf llama.tar.gz build/bin;
 endif
 
 # run-e2e-test:
