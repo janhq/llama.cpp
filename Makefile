@@ -29,17 +29,6 @@ else
 	@cmake --build build --config Release -j4 --target llama-server;
 endif
 
-pre-package:
-ifeq ($(OS),Windows_NT)
-	@powershell -Command "mkdir -p build\bin; cp build\bin\llama-server.exe build\bin\;"
-else ifeq ($(shell uname -s),Linux)
-	@mkdir -p build/bin; \
-	cp build/bin/llama-server build/bin/;
-else
-	@mkdir -p build/bin; \
-	cp build/bin/llama-server build/bin/;
-endif
-
 codesign:
 ifeq ($(CODE_SIGN),false)
 	@echo "Skipping Code Sign"
@@ -64,72 +53,3 @@ else ifeq ($(shell uname -s),Linux)
 else
 	@tar -czvf llama.tar.gz build/bin;
 endif
-
-# run-e2e-test:
-# ifeq ($(RUN_TESTS),false)
-# 	@echo "Skipping tests"
-# 	@exit 0
-# endif
-# ifeq ($(OS),Windows_NT)
-# 	@powershell -Command "mkdir -p examples\server\build\engines\llama; cd examples\server\build; cp ..\..\..\build\engine.dll engines\llama; ..\..\..\.github\scripts\e2e-test-server-windows.bat server.exe $(LLM_MODEL_URL) $(EMBEDDING_MODEL_URL);"
-# else ifeq ($(shell uname -s),Linux)
-# 	@mkdir -p examples/server/build/engines/llama; \
-# 	cd examples/server/build/; \
-# 	cp ../../../build/libengine.so engines/llama/; \
-# 	chmod +x ../../../.github/scripts/e2e-test-server-linux-and-mac.sh && ../../../.github/scripts/e2e-test-server-linux-and-mac.sh ./server $(LLM_MODEL_URL) $(EMBEDDING_MODEL_URL);
-# else
-# 	@mkdir -p examples/server/build/engines/llama; \
-# 	cd examples/server/build/; \
-# 	cp ../../../build/libengine.dylib engines/llama/; \
-# 	chmod +x ../../../.github/scripts/e2e-test-server-linux-and-mac.sh && ../../../.github/scripts/e2e-test-server-linux-and-mac.sh ./server $(LLM_MODEL_URL) $(EMBEDDING_MODEL_URL);
-# endif
-
-# run-e2e-submodule-test:
-# ifeq ($(RUN_TESTS),false)
-# 	@echo "Skipping tests"
-# 	@exit 0
-# endif
-# ifeq ($(OS),Windows_NT)
-# 	@powershell -Command "python -m pip install --upgrade pip"
-# 	@powershell -Command "python -m pip install requests;"
-# 	@powershell -Command "mkdir -p examples\server\build\engines\llama; cd examples\server\build; cp ..\..\..\build\engine.dll engines\llama; python ..\..\..\.github\scripts\e2e-test-server.py server $(LLM_MODEL_URL) $(EMBEDDING_MODEL_URL);"
-# else ifeq ($(shell uname -s),Linux)
-# 	python -m pip install --upgrade pip;
-# 	python -m pip install requests;
-# 	@mkdir -p examples/server/build/engines/llama; \
-# 	cd examples/server/build/; \
-# 	cp ../../../build/libengine.so engines/llama/; \
-# 	python  ../../../.github/scripts/e2e-test-server.py server $(LLM_MODEL_URL) $(EMBEDDING_MODEL_URL);
-# else
-# 	python -m pip install --upgrade pip;
-# 	python -m pip install requests;
-# 	@mkdir -p examples/server/build/engines/llama; \
-# 	cd examples/server/build/; \
-# 	cp ../../../build/libengine.dylib engines/llama/; \
-# 	python  ../../../.github/scripts/e2e-test-server.py server $(LLM_MODEL_URL) $(EMBEDDING_MODEL_URL);
-# endif
-
-# run-e2e-weekend-test:
-# ifeq ($(RUN_TESTS),false)
-# 	@echo "Skipping tests"
-# 	@exit 0
-# endif
-# ifeq ($(OS),Windows_NT)
-# 	@powershell -Command "python -m pip install --upgrade pip"
-# 	@powershell -Command "python -m pip install requests;"
-# 	@powershell -Command "mkdir -p examples\server\build\engines\llama; cd examples\server\build; cp ..\..\..\build\engine.dll engines\llama; python ..\..\..\.github\scripts\e2e-test-server-weekend.py server;"
-# else ifeq ($(shell uname -s),Linux)
-# 	python -m pip install --upgrade pip;
-# 	python -m pip install requests;
-# 	@mkdir -p examples/server/build/engines/llama; \
-# 	cd examples/server/build/; \
-# 	cp ../../../build/libengine.so engines/llama/; \
-# 	python  ../../../.github/scripts/e2e-test-server-weekend.py server;
-# else
-# 	python -m pip install --upgrade pip;
-# 	python -m pip install requests;
-# 	@mkdir -p examples/server/build/engines/llama; \
-# 	cd examples/server/build/; \
-# 	cp ../../../build/libengine.dylib engines/llama/; \
-# 	python  ../../../.github/scripts/e2e-test-server-weekend.py server;
-# endif
