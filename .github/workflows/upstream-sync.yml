@@ -73,20 +73,29 @@ jobs:
         git checkout -b $BRANCH_NAME
         git push origin $BRANCH_NAME --force
         
-        # Create PR
+        # Create PR using GitHub CLI with explicit repo
         PR_TITLE="Sync master with upstream release $LATEST_TAG"
         PR_BODY="Updates dev branch with latest release ($LATEST_TAG) from ggml-org/llama.cpp"
         
-        gh pr create --title "$PR_TITLE" --body "$PR_BODY" --head $BRANCH_NAME --base dev --reviewer vansangpfiev || PR_FAILED=$?
+        # Create PR with explicit repository specification
+        gh pr create \
+          --repo menloresearch/llama.cpp \
+          --title "$PR_TITLE" \
+          --body "$PR_BODY" \
+          --head "$BRANCH_NAME" \
+          --base dev \
+          --reviewer vansangpfiev || PR_FAILED=$?
+        
         echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
         
         if [ ! -z "$PR_FAILED" ]; then
-          echo "Failed to create PR. A PR may already exist or branches may be identical."
+          echo "Failed to create PR. Error code: $PR_FAILED"
           echo "SKIP_PR=true" >> $GITHUB_ENV
           exit 0
         fi
         
-        PR_NUMBER=$(gh pr list --head $BRANCH_NAME --json number --jq '.[0].number')
+        # Get PR number
+        PR_NUMBER=$(gh pr list --repo menloresearch/llama.cpp --head "$BRANCH_NAME" --json number --jq '.[0].number')
         
         if [[ -z "$PR_NUMBER" ]]; then
           echo "Failed to get PR number"
@@ -103,7 +112,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         # Check if PR can be merged
-        MERGE_STATUS=$(gh pr view $PR_NUMBER --json mergeStateStatus --jq '.mergeStateStatus')
+        MERGE_STATUS=$(gh pr view $PR_NUMBER --repo menloresearch/llama.cpp --json mergeStateStatus --jq '.mergeStateStatus')
         if [[ "$MERGE_STATUS" != "CLEAN" ]]; then
           echo "PR has conflicts and needs manual review"
           exit 0
@@ -112,13 +121,13 @@ jobs:
         # Wait for CI checks without hardcoded attempts
         echo "Waiting for CI checks to complete..."
         while true; do
-          ci_completed=$(gh pr checks $PR_NUMBER --json completedAt --jq '.[].completedAt')
+          ci_completed=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json completedAt --jq '.[].completedAt')
           if echo "$ci_completed" | grep -q "0001-01-01T00:00:00Z"; then
             echo "CI is still running, waiting..."
             sleep 60
           else
             echo "CI has completed, checking states..."
-            ci_states=$(gh pr checks $PR_NUMBER --json state --jq '.[].state')
+            ci_states=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json state --jq '.[].state')
             if echo "$ci_states" | grep -vqE "SUCCESS|SKIPPED"; then
               echo "CI failed, exiting..."
               exit 1
@@ -135,7 +144,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         # Merge PR
-        gh pr merge $PR_NUMBER --merge
+        gh pr merge $PR_NUMBER --repo menloresearch/llama.cpp --merge
         
         # Create tag
         git fetch origin dev
