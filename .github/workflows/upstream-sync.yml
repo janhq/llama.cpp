@@ -17,74 +17,71 @@ jobs:
       with:
         fetch-depth: 0  # Get full history for commit count
         token: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+        ref: master
 
     - name: Configure Git
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        
-    - name: Add upstream remote
+
+    - name: Add upstream remote and fetch master
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         git remote add upstream https://github.com/ggml-org/llama.cpp.git
-        git fetch upstream master
-        echo "Upstream fetch completed successfully"
+        git fetch upstream master:refs/remotes/upstream/master --no-tags
         
-    - name: Fetch tags
+    - name: Determine target commit
+      id: target
       run: |
-        git fetch upstream --tags
-        echo "Tags fetch completed successfully"
+        RELEASE_INFO=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest)
+        LATEST_TAG=$(echo "$RELEASE_INFO" | jq -r '.tag_name')
+        LATEST_COMMIT=$(echo "$RELEASE_INFO" | jq -r '.target_commitish')
         
-    - name: Debug branch info
-      run: |
-        echo "Local branches:"
-        git branch -a
-        echo "Remote branches:"
-        git ls-remote --heads origin
+        if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "null" ]; then
+          echo "Latest release tag: $LATEST_TAG (will use upstream/master)"
+          echo "target=upstream/master" >> $GITHUB_OUTPUT
+        else
+          echo "Using upstream/master as target"
+          echo "target=upstream/master" >> $GITHUB_OUTPUT
+        fi
         
     - name: Sync master with latest release
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
-        git checkout -B master
-        echo "Checked out master branch"
-        git reset --hard upstream/master
-        echo "Reset master to upstream/master"
-        git push origin master --force
-        echo "Pushed master to origin"
-
-    - name: Debug before dev checkout
-      run: |
-        echo "Current branch:"
-        git branch --show-current
+        CURRENT_COMMIT=$(git rev-parse HEAD)
+        TARGET="${{ steps.target.outputs.target }}"
         
+        echo "Resetting master to $TARGET"
+        git reset --hard $TARGET
+        
+        NEW_COMMIT=$(git rev-parse HEAD)
+        
+        if [ "$CURRENT_COMMIT" = "$NEW_COMMIT" ]; then
+          echo "No new changes found, master is already up to date"
+        else
+          echo "Pushing updates to master"
+          git push origin HEAD:master --force
+          echo "MASTER_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
+        fi
+
     - name: Rebase dev onto master
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
-        # First check if dev branch exists locally
-        if git show-ref --verify --quiet refs/heads/dev; then
-          echo "Local dev branch exists, checking out"
-          git checkout dev
-        elif git show-ref --verify --quiet refs/remotes/origin/dev; then
-          echo "Remote dev branch exists, creating local tracking branch"
-          git checkout -b dev origin/dev
-        else
-          echo "No dev branch exists, creating from master"
-          git checkout -b dev
-        fi
+        git fetch origin dev:refs/remotes/origin/dev --no-tags
+        git checkout -b temp-dev origin/dev
         
-        echo "On branch $(git branch --show-current)"
-        
+        echo "Attempting to rebase dev onto master..."
         if ! git rebase master; then
-            echo "Rebase conflict detected, aborting"
+            echo "⚠️ Rebase conflict detected, aborting"
             git rebase --abort
             exit 1
         fi
         
-        echo "Rebase successful, pushing to origin"
-        git push origin dev --force-with-lease || git push origin dev --force
+        echo "Rebase successful, force pushing to dev..."
+        git push origin HEAD:dev --force
 
     - name: Create version tag
       env:
@@ -92,16 +89,13 @@ jobs:
       run: |
         git checkout master
         COMMIT_COUNT=$(git rev-list --count HEAD)
-        echo "Commit count: $COMMIT_COUNT"
-        git checkout dev
+        NEW_TAG="b${COMMIT_COUNT}"
         
-        # Check if tag already exists
-        if git rev-parse "b${COMMIT_COUNT}" >/dev/null 2>&1; then
-          echo "Tag b${COMMIT_COUNT} already exists, force updating"
-          git tag -f "b${COMMIT_COUNT}"
+        if git ls-remote --tags origin | grep -q "refs/tags/${NEW_TAG}$"; then
+          echo "Tag $NEW_TAG already exists on remote, skipping tag creation"
         else
-          echo "Creating new tag b${COMMIT_COUNT}"
-          git tag "b${COMMIT_COUNT}"
+          echo "Creating new tag: $NEW_TAG"
+          git tag "$NEW_TAG"
+          git push origin "$NEW_TAG"
+          echo "Successfully created and pushed tag $NEW_TAG"
         fi
-        
-        git push origin "b${COMMIT_COUNT}" --force
