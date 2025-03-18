@@ -76,7 +76,7 @@ jobs:
           --title "$PR_TITLE" \
           --body "$PR_BODY" \
           --head "$BRANCH_NAME" \
-          --base dev \ || PR_FAILED=$?
+          --base dev || PR_FAILED=$?
         
         echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
         
