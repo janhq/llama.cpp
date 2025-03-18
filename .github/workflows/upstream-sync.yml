@@ -24,7 +24,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        fetch-depth: 1  # Fetch only the latest commit
         token: ${{ secrets.PAT_SERVICE_ACCOUNT }}
         ref: master
 
@@ -33,26 +33,33 @@ jobs:
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-    - name: Add upstream remote and fetch latest release
+    - name: Add upstream remote
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
-        git remote add upstream https://github.com/ggml-org/llama.cpp.git
-        git fetch upstream --prune --unshallow --tags
+        git remote add upstream https://github.com/ggml-org/llama.cpp.git || true
+        git fetch upstream --prune --tags --depth=1  # Fetch only necessary tags
 
+    - name: Get Latest Release Tag
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+      run: |
         LATEST_RELEASE_TAG=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r '.tag_name')
-        
+
         if [ -z "$LATEST_RELEASE_TAG" ] || [ "$LATEST_RELEASE_TAG" = "null" ]; then
           echo "No valid release found. Exiting."
           exit 1
         fi
-        
-        echo "Latest release tag: $LATEST_RELEASE_TAG"
-        git fetch upstream $LATEST_RELEASE_TAG
-        git checkout $LATEST_RELEASE_TAG
 
-        git reset --hard upstream/$LATEST_RELEASE_TAG
-        git push origin HEAD:master --force
+        echo "Latest release tag: $LATEST_RELEASE_TAG"
+        echo "LATEST_RELEASE_TAG=$LATEST_RELEASE_TAG" >> $GITHUB_ENV
+
+    - name: Sync Master with Latest Release
+      run: |
+        LATEST_RELEASE_TAG=${{ env.LATEST_RELEASE_TAG }}
+        git fetch upstream $LATEST_RELEASE_TAG --depth=1
+        git checkout -B master $LATEST_RELEASE_TAG
+        git push origin master --force
 
     - name: Create PR to merge master into dev
       id: create-pr
@@ -65,14 +72,18 @@ jobs:
         PR_TITLE="Sync master (latest release) → dev"
         PR_BODY="This PR updates the dev branch with the latest release from ggml-org/llama.cpp"
 
-        gh pr create --title "$PR_TITLE" --body "$PR_BODY" --head update-dev-from-master --base dev --reviewer vansangpfiev || echo "PR already exists."
+        PR_NUMBER=$(gh pr create --title "$PR_TITLE" --body "$PR_BODY" --head update-dev-from-master --base dev --reviewer vansangpfiev --json number --jq '.number' || echo "")
+        
+        if [[ -z "$PR_NUMBER" ]]; then
+          echo "PR already exists or failed to create."
+          echo "::set-output name=pr_created::false"
+        else
+          echo "PR created: #$PR_NUMBER"
+          echo "::set-output name=pr_number::$PR_NUMBER"
+          echo "::set-output name=pr_created::true"
+        fi
 
-        PR_NUMBER=$(gh pr list --head update-dev-from-master --json number --jq '.[0].number')
-        echo "pr_number=$PR_NUMBER" >> $GITHUB_ENV
-        echo "::set-output name=pr_number::$PR_NUMBER"
-        echo "::set-output name=pr_created::true"
-
-    - name: Count commits for tagging
+    - name: Count Commits for Tagging
       id: commit-count
       run: |
         COMMIT_COUNT=$(git rev-list --count HEAD)
@@ -90,17 +101,17 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        fetch-depth: 1
         token: ${{ secrets.PAT_SERVICE_ACCOUNT }}
         ref: dev
 
-    - name: Check PR mergeability
+    - name: Check PR Mergeability
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         PR_NUMBER=${{ needs.sync-master.outputs.pr_number }}
         MERGE_STATUS=$(gh pr view $PR_NUMBER --json mergeable --jq '.mergeable')
-        
+
         if [[ "$MERGE_STATUS" == "MERGEABLE" ]]; then
           echo "PR is mergeable, proceeding with merge."
         else
@@ -122,7 +133,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        fetch-depth: 1
         token: ${{ secrets.PAT_SERVICE_ACCOUNT }}
         ref: dev
 
@@ -131,7 +142,7 @@ jobs:
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-    - name: Create and push tag
+    - name: Create and Push Tag
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
