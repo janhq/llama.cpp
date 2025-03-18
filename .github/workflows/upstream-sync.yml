@@ -53,11 +53,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
-        # Fetch dev branch to compare
         git fetch origin dev
-        
-        # Check if there are differences between master and dev
-        # Exit code 0 means no differences, exit code 1 means there are differences
         git diff --quiet master origin/dev || HAS_DIFF=$?
         
         if [ -z "$HAS_DIFF" ]; then
@@ -68,23 +64,19 @@ jobs:
           echo "Found differences between master and dev. Creating PR..."
         fi
         
-        # Create branch for PR with timestamp
         BRANCH_NAME="update-dev-from-master-$(date +'%Y-%m-%d-%H-%M')"
         git checkout -b $BRANCH_NAME
         git push origin $BRANCH_NAME --force
         
-        # Create PR using GitHub CLI with explicit repo
         PR_TITLE="Sync master with upstream release $LATEST_TAG"
         PR_BODY="Updates dev branch with latest release ($LATEST_TAG) from ggml-org/llama.cpp"
         
-        # Create PR with explicit repository specification
         gh pr create \
           --repo menloresearch/llama.cpp \
           --title "$PR_TITLE" \
           --body "$PR_BODY" \
           --head "$BRANCH_NAME" \
-          --base dev \
-          --reviewer vansangpfiev || PR_FAILED=$?
+          --base dev \ || PR_FAILED=$?
         
         echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
         
@@ -94,7 +86,6 @@ jobs:
           exit 0
         fi
         
-        # Get PR number
         PR_NUMBER=$(gh pr list --repo menloresearch/llama.cpp --head "$BRANCH_NAME" --json number --jq '.[0].number')
         
         if [[ -z "$PR_NUMBER" ]]; then
@@ -111,40 +102,90 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
-        # Check if PR can be merged
         MERGE_STATUS=$(gh pr view $PR_NUMBER --repo menloresearch/llama.cpp --json mergeStateStatus --jq '.mergeStateStatus')
+        echo "PR merge status: $MERGE_STATUS"
+        
         if [[ "$MERGE_STATUS" != "CLEAN" ]]; then
-          echo "PR has conflicts and needs manual review"
+          echo "PR has conflicts and needs manual review. Stopping automatic merge."
+          echo "SKIP_MERGE=true" >> $GITHUB_ENV
           exit 0
         fi
         
-        # Wait for CI checks without hardcoded attempts
-        echo "Waiting for CI checks to complete..."
-        while true; do
-          ci_completed=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json completedAt --jq '.[].completedAt')
-          if echo "$ci_completed" | grep -q "0001-01-01T00:00:00Z"; then
-            echo "CI is still running, waiting..."
-            sleep 60
-          else
-            echo "CI has completed, checking states..."
-            ci_states=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json state --jq '.[].state')
-            if echo "$ci_states" | grep -vqE "SUCCESS|SKIPPED"; then
-              echo "CI failed, exiting..."
-              exit 1
+        # Check if there are any CI checks
+        CI_CHECKS_EXIST=false
+        MAX_ATTEMPTS=5
+        
+        for i in $(seq 1 $MAX_ATTEMPTS); do
+          echo "Checking for CI checks (attempt $i of $MAX_ATTEMPTS)..."
+          CI_CHECK_COUNT=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json name --jq 'length')
+          
+          if [[ "$CI_CHECK_COUNT" -gt 0 ]]; then
+            CI_CHECKS_EXIST=true
+            echo "Found $CI_CHECK_COUNT CI checks"
+            break
+          fi
+          
+          echo "No CI checks found yet, waiting 10 seconds..."
+          sleep 10
+        done
+        
+        # Only wait for CI if checks exist
+        if [[ "$CI_CHECKS_EXIST" == "true" ]]; then
+          echo "Waiting for CI checks to complete..."
+          MAX_WAIT_TIME=10  # Maximum wait time in minutes
+          WAIT_INTERVAL=30  # Check interval in seconds
+          ELAPSED_TIME=0
+          
+          while (( ELAPSED_TIME < MAX_WAIT_TIME * 60 )); do
+            # Get CI check details
+            CI_STATUS=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json status,conclusion --jq '.[].status')
+            
+            # If any are still in progress, wait
+            if echo "$CI_STATUS" | grep -q "IN_PROGRESS"; then
+              echo "CI is still running, waiting... ($ELAPSED_TIME seconds elapsed of $(( MAX_WAIT_TIME * 60 )) max)"
+              sleep $WAIT_INTERVAL
+              ELAPSED_TIME=$((ELAPSED_TIME + WAIT_INTERVAL))
             else
-              echo "CI passed, proceeding with merge..."
+              # All checks are complete
+              echo "All CI checks completed!"
+              
+              # Check for failures
+              CI_CONCLUSIONS=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json conclusion --jq '.[].conclusion')
+              if echo "$CI_CONCLUSIONS" | grep -qE "FAILURE|CANCELLED|TIMED_OUT"; then
+                echo "Some CI checks failed. Human review required."
+                echo "SKIP_MERGE=true" >> $GITHUB_ENV
+                exit 0
+              fi
+              
               break
             fi
-          fi
-        done
+            
+            # Check if we've exceeded the maximum wait time
+            if (( ELAPSED_TIME >= MAX_WAIT_TIME * 60 )); then
+              echo "Maximum wait time of $MAX_WAIT_TIME minutes exceeded. Marking for human review."
+              echo "SKIP_MERGE=true" >> $GITHUB_ENV
+              exit 0
+            fi
+          done
+        else
+          echo "No CI checks found after $MAX_ATTEMPTS attempts. Proceeding with merge."
+        fi
 
     - name: Merge PR and create tag
-      if: ${{ env.SKIP_PR != 'true' }}
+      if: ${{ env.SKIP_PR != 'true' && env.SKIP_MERGE != 'true' }}
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
-        # Merge PR
-        gh pr merge $PR_NUMBER --repo menloresearch/llama.cpp --merge
+        echo "Attempting to merge PR #$PR_NUMBER..."
+        gh pr merge $PR_NUMBER --repo menloresearch/llama.cpp --merge || MERGE_FAILED=$?
+        
+        if [ ! -z "$MERGE_FAILED" ]; then
+          echo "Failed to merge PR. Error code: $MERGE_FAILED"
+          echo "Manual intervention required."
+          exit 0
+        fi
+        
+        echo "PR merged successfully!"
         
         # Create tag
         git fetch origin dev
