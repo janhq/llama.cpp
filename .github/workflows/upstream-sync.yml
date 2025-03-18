@@ -68,15 +68,17 @@ jobs:
           echo "Found differences between master and dev. Creating PR..."
         fi
         
-        # Create branch for PR
-        git checkout -b update-dev-from-master
-        git push origin update-dev-from-master --force
+        # Create branch for PR with timestamp
+        BRANCH_NAME="update-dev-from-master-$(date +'%Y-%m-%d-%H-%M')"
+        git checkout -b $BRANCH_NAME
+        git push origin $BRANCH_NAME --force
         
         # Create PR
         PR_TITLE="Sync master with upstream release $LATEST_TAG"
         PR_BODY="Updates dev branch with latest release ($LATEST_TAG) from ggml-org/llama.cpp"
         
-        gh pr create --title "$PR_TITLE" --body "$PR_BODY" --head update-dev-from-master --base dev --reviewer vansangpfiev || PR_FAILED=$?
+        gh pr create --title "$PR_TITLE" --body "$PR_BODY" --head $BRANCH_NAME --base dev --reviewer vansangpfiev || PR_FAILED=$?
+        echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
         
         if [ ! -z "$PR_FAILED" ]; then
           echo "Failed to create PR. A PR may already exist or branches may be identical."
@@ -84,7 +86,7 @@ jobs:
           exit 0
         fi
         
-        PR_NUMBER=$(gh pr list --head update-dev-from-master --json number --jq '.[0].number')
+        PR_NUMBER=$(gh pr list --head $BRANCH_NAME --json number --jq '.[0].number')
         
         if [[ -z "$PR_NUMBER" ]]; then
           echo "Failed to get PR number"
@@ -133,7 +135,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         # Merge PR
-        gh pr merge $PR_NUMBER --merge --admin
+        gh pr merge $PR_NUMBER --merge
         
         # Create tag
         git fetch origin dev
