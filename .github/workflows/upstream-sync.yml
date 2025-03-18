@@ -17,33 +17,74 @@ jobs:
       with:
         fetch-depth: 0  # Get full history for commit count
         token: ${{ secrets.PAT_SERVICE_ACCOUNT }}
-        ref: master
 
     - name: Configure Git
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-    - name: Add upstream remote and sync master with latest release
+        
+    - name: Add upstream remote
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         git remote add upstream https://github.com/ggml-org/llama.cpp.git
-        git fetch upstream master --tags  # Fetch tags from upstream
-        git checkout master
+        git fetch upstream master
+        echo "Upstream fetch completed successfully"
+        
+    - name: Fetch tags
+      run: |
+        git fetch upstream --tags
+        echo "Tags fetch completed successfully"
+        
+    - name: Debug branch info
+      run: |
+        echo "Local branches:"
+        git branch -a
+        echo "Remote branches:"
+        git ls-remote --heads origin
+        
+    - name: Sync master with latest release
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+      run: |
+        git checkout -B master
+        echo "Checked out master branch"
         git reset --hard upstream/master
+        echo "Reset master to upstream/master"
         git push origin master --force
+        echo "Pushed master to origin"
 
+    - name: Debug before dev checkout
+      run: |
+        echo "Current branch:"
+        git branch --show-current
+        
     - name: Rebase dev onto master
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
-        git checkout dev
+        # First check if dev branch exists locally
+        if git show-ref --verify --quiet refs/heads/dev; then
+          echo "Local dev branch exists, checking out"
+          git checkout dev
+        elif git show-ref --verify --quiet refs/remotes/origin/dev; then
+          echo "Remote dev branch exists, creating local tracking branch"
+          git checkout -b dev origin/dev
+        else
+          echo "No dev branch exists, creating from master"
+          git checkout -b dev
+        fi
+        
+        echo "On branch $(git branch --show-current)"
+        
         if ! git rebase master; then
             echo "Rebase conflict detected, aborting"
             git rebase --abort
             exit 1
         fi
-        git push origin dev --force-with-lease
+        
+        echo "Rebase successful, pushing to origin"
+        git push origin dev --force-with-lease || git push origin dev --force
 
     - name: Create version tag
       env:
@@ -51,6 +92,16 @@ jobs:
       run: |
         git checkout master
         COMMIT_COUNT=$(git rev-list --count HEAD)
+        echo "Commit count: $COMMIT_COUNT"
         git checkout dev
-        git tag "b${COMMIT_COUNT}"
-        git push origin tag "b${COMMIT_COUNT}"
+        
+        # Check if tag already exists
+        if git rev-parse "b${COMMIT_COUNT}" >/dev/null 2>&1; then
+          echo "Tag b${COMMIT_COUNT} already exists, force updating"
+          git tag -f "b${COMMIT_COUNT}"
+        else
+          echo "Creating new tag b${COMMIT_COUNT}"
+          git tag "b${COMMIT_COUNT}"
+        fi
+        
+        git push origin "b${COMMIT_COUNT}" --force
