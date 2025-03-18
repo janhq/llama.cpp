@@ -1,15 +1,14 @@
-name: Sync Upstream and Update Dev Branch
+name: Sync Upstream and Update Dev
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # Runs daily at midnight UTC
-  workflow_dispatch:  # Allows manual trigger
+    - cron: '0 0 * * *'  # Daily at midnight UTC
+  workflow_dispatch:  # Manual trigger
   pull_request:
-    branches:
-      - dev
+    branches: [dev]
 
 jobs:
-  sync-and-merge:
+  sync-and-update:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -19,76 +18,108 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Full history for commit counting
+        fetch-depth: 0
         token: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+        ref: master
 
-    - name: Configure Git
+    - name: Setup
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-
-    - name: Add upstream remote and fetch latest release
-      run: |
         git remote add upstream https://github.com/ggml-org/llama.cpp.git || true
-        LATEST_RELEASE_TAG=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r '.tag_name')
-        
-        if [ -z "$LATEST_RELEASE_TAG" ] || [ "$LATEST_RELEASE_TAG" = "null" ]; then
+
+    - name: Sync with latest release
+      id: sync
+      run: |
+        # Get latest release tag
+        LATEST_TAG=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r '.tag_name')
+        if [[ -z "$LATEST_TAG" || "$LATEST_TAG" == "null" ]]; then
           echo "No valid release found. Exiting."
           exit 1
         fi
+        echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
         
-        echo "LATEST_RELEASE_TAG=$LATEST_RELEASE_TAG" >> $GITHUB_ENV
-        git fetch upstream $LATEST_RELEASE_TAG
-
-    - name: Update master branch with latest release
-      run: |
+        # Update master branch
+        git fetch upstream $LATEST_TAG --depth=1
         git checkout -B master FETCH_HEAD
         git push origin master --force
-        # Count total commits for tagging
+        
+        # Count commits for tagging
         COMMIT_COUNT=$(git rev-list --count HEAD)
         echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_ENV
 
-    - name: Create PR to dev branch
-      id: create-pr
+    - name: Create PR to dev
+      id: create_pr
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
+        # Create branch for PR
         git checkout -b update-dev-from-master
         git push origin update-dev-from-master --force
-
-        PR_TITLE="Sync master with upstream release $LATEST_RELEASE_TAG"
-        PR_BODY="This PR updates the dev branch with the latest release ($LATEST_RELEASE_TAG) from ggml-org/llama.cpp"
-
-        PR_NUMBER=$(gh pr create --title "$PR_TITLE" --body "$PR_BODY" --head update-dev-from-master --base dev --reviewer vansangpfiev --json number --jq '.number' || echo "")
+        
+        # Create PR
+        PR_TITLE="Sync master with upstream release $LATEST_TAG"
+        PR_BODY="Updates dev branch with latest release ($LATEST_TAG) from ggml-org/llama.cpp"
+        
+        gh pr create --title "$PR_TITLE" --body "$PR_BODY" --head update-dev-from-master --base dev --reviewer vansangpfiev
+        PR_NUMBER=$(gh pr list --head update-dev-from-master --json number --jq '.[0].number')
         
         if [[ -z "$PR_NUMBER" ]]; then
-          echo "PR_CREATED=false" >> $GITHUB_ENV
-          echo "PR_NUMBER=0" >> $GITHUB_ENV
-        else
-          echo "PR created: #$PR_NUMBER"
-          echo "PR_CREATED=true" >> $GITHUB_ENV
-          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+          echo "Failed to create PR"
+          exit 0
         fi
-
-    - name: Check and merge PR if no conflicts
-      if: env.PR_CREATED == 'true'
-      run: |
-        PR_STATUS=$(gh pr view $PR_NUMBER --json mergeable --jq '.mergeable')
         
-        if [[ "$PR_STATUS" == "MERGEABLE" ]]; then
-          echo "PR is mergeable, proceeding with merge."
-          gh pr merge $PR_NUMBER --merge --admin
-          
-          # Create and push tag after successful merge
-          git fetch origin dev
-          git checkout dev
-          TAG_NAME="b$COMMIT_COUNT"
-          
-          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-            echo "Tag $TAG_NAME already exists, skipping."
+        echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+
+    - name: Check PR status
+      id: check_pr
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+      run: |
+        # Check if PR can be merged
+        MERGE_STATUS=$(gh pr view $PR_NUMBER --json mergeStateStatus --jq '.mergeStateStatus')
+        if [[ "$MERGE_STATUS" != "CLEAN" ]]; then
+          echo "PR has conflicts and needs manual review"
+          exit 0
+        fi
+        
+        # Wait for CI checks without hardcoded attempts
+        echo "Waiting for CI checks to complete..."
+        while true; do
+          ci_completed=$(gh pr checks $PR_NUMBER --json completedAt --jq '.[].completedAt')
+          if echo "$ci_completed" | grep -q "0001-01-01T00:00:00Z"; then
+            echo "CI is still running, waiting..."
+            sleep 60
           else
-            git tag "$TAG_NAME"
-            git push origin "$TAG_NAME"
+            echo "CI has completed, checking states..."
+            ci_states=$(gh pr checks $PR_NUMBER --json state --jq '.[].state')
+            if echo "$ci_states" | grep -vqE "SUCCESS|SKIPPED"; then
+              echo "CI failed, exiting..."
+              exit 1
+            else
+              echo "CI passed, proceeding with merge..."
+              break
+            fi
           fi
+        done
+
+    - name: Merge PR and create tag
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+      run: |
+        # Merge PR
+        gh pr merge $PR_NUMBER --merge
+        
+        # Create tag
+        git fetch origin dev
+        git checkout dev
+        TAG_NAME="b$COMMIT_COUNT"
+        
+        # Check if tag exists
+        if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+          echo "Tag $TAG_NAME already exists"
         else
-          echo "PR is not mergeable due to conflicts. Manual resolution required."
-          exit 0  # Don't fail the workflow
+          git tag "$TAG_NAME"
+          git push origin "$TAG_NAME"
+          echo "Tag $TAG_NAME created successfully"
         fi
