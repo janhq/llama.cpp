@@ -34,8 +34,8 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         git checkout master
-        LATEST_RELEASE=$(git describe --tags --abbrev=0 upstream/master)
-        git reset --hard $LATEST_RELEASE
+        git fetch upstream master
+        git reset --hard upstream/master
         git push origin master --force
 
     - name: Rebase dev onto master
@@ -46,6 +46,8 @@ jobs:
         if ! git rebase master; then
             echo "Rebase conflict detected, aborting"
             git rebase --abort
+            git status
+            git diff
             exit 1
         fi
         git push origin dev --force-with-lease
