@@ -28,14 +28,26 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         git remote add upstream https://github.com/ggml-org/llama.cpp.git
-        git fetch upstream --tags  # Fetch tags from upstream
+        git fetch upstream master:refs/remotes/upstream/master
 
+        # Fetch the latest release tag
+        LATEST_TAG=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | grep -Po '"tag_name": "\K.*?(?=")')
+        if [ -n "$LATEST_TAG" ]; then
+          git fetch upstream refs/tags/$LATEST_TAG:refs/tags/$LATEST_TAG
+        fi
+        
     - name: Sync master with latest release
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         git checkout master
-        LATEST_RELEASE=$(git describe --tags --abbrev=0 upstream/master)
+        LATEST_RELEASE=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | grep -Po '"tag_name": "\K.*?(?=")')
+
+        if [ -z "$LATEST_RELEASE" ]; then
+          echo "Could not get latest release tag, using upstream master"
+          LATEST_RELEASE="upstream/master"
+        fi
+
         git reset --hard $LATEST_RELEASE
         git push origin master --force
 
