@@ -1,0 +1,85 @@
+# name: Sync with Latest Release
+
+# on:
+#   schedule:
+#     - cron: '0 0 * * *'  # Runs daily at midnight UTC
+#   workflow_dispatch:     # Allow manual triggering
+#   pull_request:
+#     branches:
+#       - dev
+
+# jobs:
+#   sync-with-release:
+#     runs-on: ubuntu-latest
+#     steps:
+#     - name: Checkout repo
+#       uses: actions/checkout@v4
+#       with:
+#         fetch-depth: 0  # Get full history for commit count
+#         token: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+#         ref: master
+
+#     - name: Configure Git
+#       run: |
+#         git config --global user.name 'github-actions[bot]'
+#         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+#     - name: Add upstream remote
+#       env:
+#         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+#       run: |
+#         git remote add upstream https://github.com/ggml-org/llama.cpp.git
+#         git fetch upstream master:refs/remotes/upstream/master
+
+#         # Fetch the latest release tag
+#         LATEST_TAG=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | grep -Po '"tag_name": "\K.*?(?=")')
+#         if [ -n "$LATEST_TAG" ]; then
+#           git fetch upstream refs/tags/$LATEST_TAG:refs/tags/$LATEST_TAG
+#         fi
+        
+#     - name: Sync master with latest release
+#       env:
+#         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+#       run: |
+#         LATEST_RELEASE=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | grep -Po '"tag_name": "\K.*?(?=")')
+
+#         if [ -z "$LATEST_RELEASE" ]; then
+#           echo "Could not get latest release tag, using upstream master"
+#           LATEST_RELEASE="upstream/master"
+#         fi
+
+#         git reset --hard $LATEST_RELEASE
+#         git push origin HEAD:master --force
+
+#     - name: Rebase dev onto master
+#       env:
+#         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+#       run: |
+#         git checkout -b temp-dev origin/dev
+#         echo "Attempting to rebase dev onto master..."
+#         # Use the HEAD reference since we're currently on master branch
+#         if ! git rebase $MASTER_COMMIT; then
+#             echo "⚠️ Rebase conflict detected, aborting"
+#             git rebase --abort
+#             exit 1
+#         fi
+#         echo "Rebase successful, force pushing to dev..."
+#         git push origin HEAD:dev --force-with-lease
+
+#     - name: Create version tag
+#       env:
+#         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+#       run: |
+#         git checkout master
+#         COMMIT_COUNT=$(git rev-list --count HEAD)
+#         NEW_TAG="b${COMMIT_COUNT}"
+#         echo "Creating new tag: $NEW_TAG"
+        
+#         # Check if tag already exists
+#         if git rev-parse "$NEW_TAG" >/dev/null 2>&1; then
+#           echo "Tag $NEW_TAG already exists, skipping tag creation"
+#         else
+#           git checkout -b temp-dev origin/dev
+#           git tag "$NEW_TAG"
+#           git push origin tag "$NEW_TAG"
+#         fi
