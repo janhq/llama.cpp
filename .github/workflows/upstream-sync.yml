@@ -96,12 +96,13 @@ jobs:
         
         echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
 
-    - name: Check PR status
+    - name: Check PR status and wait for CI
       id: check_pr
       if: ${{ env.SKIP_PR != 'true' }}
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
+        # Check if PR can be merged
         MERGE_STATUS=$(gh pr view $PR_NUMBER --repo menloresearch/llama.cpp --json mergeStateStatus --jq '.mergeStateStatus')
         echo "PR merge status: $MERGE_STATUS"
         
@@ -111,65 +112,26 @@ jobs:
           exit 0
         fi
         
-        # Check if there are any CI checks
-        CI_CHECKS_EXIST=false
-        MAX_ATTEMPTS=5
-        
-        for i in $(seq 1 $MAX_ATTEMPTS); do
-          echo "Checking for CI checks (attempt $i of $MAX_ATTEMPTS)..."
-          CI_CHECK_COUNT=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json name --jq 'length')
-          
-          if [[ "$CI_CHECK_COUNT" -gt 0 ]]; then
-            CI_CHECKS_EXIST=true
-            echo "Found $CI_CHECK_COUNT CI checks"
-            break
-          fi
-          
-          echo "No CI checks found yet, waiting 10 seconds..."
-          sleep 10
-        done
-        
-        # Only wait for CI if checks exist
-        if [[ "$CI_CHECKS_EXIST" == "true" ]]; then
-          echo "Waiting for CI checks to complete..."
-          MAX_WAIT_TIME=10  # Maximum wait time in minutes
-          WAIT_INTERVAL=30  # Check interval in seconds
-          ELAPSED_TIME=0
-          
-          while (( ELAPSED_TIME < MAX_WAIT_TIME * 60 )); do
-            # Get CI check details
-            CI_STATUS=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json status,conclusion --jq '.[].status')
-            
-            # If any are still in progress, wait
-            if echo "$CI_STATUS" | grep -q "IN_PROGRESS"; then
-              echo "CI is still running, waiting... ($ELAPSED_TIME seconds elapsed of $(( MAX_WAIT_TIME * 60 )) max)"
-              sleep $WAIT_INTERVAL
-              ELAPSED_TIME=$((ELAPSED_TIME + WAIT_INTERVAL))
-            else
-              # All checks are complete
-              echo "All CI checks completed!"
-              
-              # Check for failures
-              CI_CONCLUSIONS=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json conclusion --jq '.[].conclusion')
-              if echo "$CI_CONCLUSIONS" | grep -qE "FAILURE|CANCELLED|TIMED_OUT"; then
-                echo "Some CI checks failed. Human review required."
-                echo "SKIP_MERGE=true" >> $GITHUB_ENV
-                exit 0
-              fi
-              
-              break
-            fi
-            
-            # Check if we've exceeded the maximum wait time
-            if (( ELAPSED_TIME >= MAX_WAIT_TIME * 60 )); then
-              echo "Maximum wait time of $MAX_WAIT_TIME minutes exceeded. Marking for human review."
+        # Wait for CI checks using the more reliable method
+        echo "Waiting for CI checks to complete..."
+        while true; do
+          ci_completed=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json completedAt --jq '.[].completedAt')
+          if echo "$ci_completed" | grep -q "0001-01-01T00:00:00Z"; then
+            echo "CI is still running, waiting..."
+            sleep 60
+          else
+            echo "CI has completed, checking states..."
+            ci_states=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json state --jq '.[].state')
+            if echo "$ci_states" | grep -vqE "SUCCESS|SKIPPED"; then
+              echo "CI failed, exiting..."
               echo "SKIP_MERGE=true" >> $GITHUB_ENV
               exit 0
+            else
+              echo "CI passed, proceeding with merge..."
+              break
             fi
-          done
-        else
-          echo "No CI checks found after $MAX_ATTEMPTS attempts. Proceeding with merge."
-        fi
+          fi
+        done
 
     - name: Merge PR and create tag
       if: ${{ env.SKIP_PR != 'true' && env.SKIP_MERGE != 'true' }}
