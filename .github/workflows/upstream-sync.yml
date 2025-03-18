@@ -17,6 +17,7 @@ jobs:
       with:
         fetch-depth: 0  # Get full history for commit count
         token: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+        ref: master
 
     - name: Configure Git
       run: |
