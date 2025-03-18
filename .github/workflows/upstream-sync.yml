@@ -17,6 +17,7 @@ jobs:
       with:
         fetch-depth: 0  # Get full history for commit count
         token: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+        ref: master
 
     - name: Configure Git
       run: |
@@ -40,7 +41,6 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
-        git checkout master
         LATEST_RELEASE=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | grep -Po '"tag_name": "\K.*?(?=")')
 
         if [ -z "$LATEST_RELEASE" ]; then
@@ -49,21 +49,22 @@ jobs:
         fi
 
         git reset --hard $LATEST_RELEASE
-        git push origin master --force
+        git push origin HEAD:master --force
 
     - name: Rebase dev onto master
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
-        git checkout dev
+        git checkout -b temp-dev origin/dev
         echo "Attempting to rebase dev onto master..."
-        if ! git rebase master; then
+        # Use the HEAD reference since we're currently on master branch
+        if ! git rebase HEAD; then
             echo "⚠️ Rebase conflict detected, aborting"
             git rebase --abort
             exit 1
         fi
         echo "Rebase successful, force pushing to dev..."
-        git push origin dev --force-with-lease
+        git push origin HEAD:dev --force-with-lease
 
     - name: Create version tag
       env:
@@ -78,7 +79,7 @@ jobs:
         if git rev-parse "$NEW_TAG" >/dev/null 2>&1; then
           echo "Tag $NEW_TAG already exists, skipping tag creation"
         else
-          git checkout dev
+          git checkout -b temp-dev origin/dev
           git tag "$NEW_TAG"
           git push origin tag "$NEW_TAG"
         fi
