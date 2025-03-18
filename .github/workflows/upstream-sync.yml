@@ -22,19 +22,13 @@ jobs:
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-    - name: Add upstream remote
+    - name: Add upstream remote and sync master with latest release
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         git remote add upstream https://github.com/ggml-org/llama.cpp.git
-        git fetch upstream --tags  # Fetch tags from upstream
-
-    - name: Sync master with latest release
-      env:
-        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
-      run: |
+        git fetch upstream master --tags  # Fetch tags from upstream
         git checkout master
-        git fetch upstream master
         git reset --hard upstream/master
         git push origin master --force
 
@@ -46,8 +40,6 @@ jobs:
         if ! git rebase master; then
             echo "Rebase conflict detected, aborting"
             git rebase --abort
-            git status
-            git diff
             exit 1
         fi
         git push origin dev --force-with-lease
