@@ -57,11 +57,15 @@ jobs:
         git fetch origin dev
         
         # Check if there are differences between master and dev
-        git diff --quiet master origin/dev
-        if [ $? -eq 0 ]; then
+        # Exit code 0 means no differences, exit code 1 means there are differences
+        git diff --quiet master origin/dev || HAS_DIFF=$?
+        
+        if [ -z "$HAS_DIFF" ]; then
           echo "No differences found between master and dev. Skipping PR creation."
           echo "SKIP_PR=true" >> $GITHUB_ENV
           exit 0
+        else
+          echo "Found differences between master and dev. Creating PR..."
         fi
         
         # Create branch for PR
@@ -72,11 +76,18 @@ jobs:
         PR_TITLE="Sync master with upstream release $LATEST_TAG"
         PR_BODY="Updates dev branch with latest release ($LATEST_TAG) from ggml-org/llama.cpp"
         
-        gh pr create --title "$PR_TITLE" --body "$PR_BODY" --head update-dev-from-master --base dev --reviewer vansangpfiev
+        gh pr create --title "$PR_TITLE" --body "$PR_BODY" --head update-dev-from-master --base dev --reviewer vansangpfiev || PR_FAILED=$?
+        
+        if [ ! -z "$PR_FAILED" ]; then
+          echo "Failed to create PR. A PR may already exist or branches may be identical."
+          echo "SKIP_PR=true" >> $GITHUB_ENV
+          exit 0
+        fi
+        
         PR_NUMBER=$(gh pr list --head update-dev-from-master --json number --jq '.[0].number')
         
         if [[ -z "$PR_NUMBER" ]]; then
-          echo "Failed to create PR"
+          echo "Failed to get PR number"
           echo "SKIP_PR=true" >> $GITHUB_ENV
           exit 0
         fi
