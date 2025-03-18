@@ -24,13 +24,15 @@ jobs:
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
     - name: Add upstream remote
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         git remote add upstream https://github.com/ggml-org/llama.cpp.git
         git fetch upstream --tags  # Fetch tags from upstream
 
     - name: Sync master with latest release
       env:
-          GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         git checkout master
         LATEST_RELEASE=$(git describe --tags --abbrev=0 upstream/master)
@@ -39,7 +41,7 @@ jobs:
 
     - name: Rebase dev onto master
       env:
-          GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         git checkout dev
         echo "Attempting to rebase dev onto master..."
@@ -53,7 +55,7 @@ jobs:
 
     - name: Create version tag
       env:
-          GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         git checkout master
         COMMIT_COUNT=$(git rev-list --count HEAD)
