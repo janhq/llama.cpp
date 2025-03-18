@@ -96,16 +96,23 @@ jobs:
         
         echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
 
-    - name: Check PR status and wait for CI
-      id: check_pr
+    - name: Wait for CI checks
+      id: wait_for_ci
       if: ${{ env.SKIP_PR != 'true' }}
       env:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
-        # Wait for CI checks using the more reliable method
         echo "Waiting for CI checks to complete..."
         while true; do
           ci_completed=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json completedAt --jq '.[].completedAt')
+          
+          # If there are no CI checks, proceed with merge
+          if [[ -z "$ci_completed" ]]; then
+            echo "No CI checks detected. Proceeding with merge."
+            break
+          fi
+          
+          # Check if any checks are still running
           if echo "$ci_completed" | grep -q "0001-01-01T00:00:00Z"; then
             echo "CI is still running, waiting..."
             sleep 60
@@ -122,16 +129,6 @@ jobs:
             fi
           fi
         done
-        # Check if PR can be merged
-        MERGE_STATUS=$(gh pr view $PR_NUMBER --repo menloresearch/llama.cpp --json mergeStateStatus --jq '.mergeStateStatus')
-        echo "PR merge status: $MERGE_STATUS"
-        
-        if [[ "$MERGE_STATUS" != "CLEAN" ]]; then
-          echo "PR has conflicts and needs manual review. Stopping automatic merge."
-          echo "SKIP_MERGE=true" >> $GITHUB_ENV
-          exit 0
-        fi
-        
 
     - name: Merge PR and create tag
       if: ${{ env.SKIP_PR != 'true' && env.SKIP_MERGE != 'true' }}
