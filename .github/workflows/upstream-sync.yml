@@ -58,7 +58,7 @@ jobs:
         git checkout -b temp-dev origin/dev
         echo "Attempting to rebase dev onto master..."
         # Use the HEAD reference since we're currently on master branch
-        if ! git rebase HEAD; then
+        if ! git rebase $MASTER_COMMIT; then
             echo "⚠️ Rebase conflict detected, aborting"
             git rebase --abort
             exit 1
