@@ -23,11 +23,6 @@ on:
       ]
   workflow_dispatch:
 
-env:
-  LLM_MODEL_URL: https://delta.jan.ai/tinyllama-1.1b-chat-v0.3.Q2_K.gguf
-  EMBEDDING_MODEL_URL: https://catalog.jan.ai/dist/models/embeds/nomic-embed-text-v1.5.f16.gguf
-  VULKAN_VERSION: 1.3.261.1
-
 jobs:
   create-draft-release:
     runs-on: ubuntu-latest
@@ -277,23 +272,6 @@ jobs:
         run: |
           brew install coreutils
 
-      - name: Prepare Vulkan SDK Linux
-        if: ${{ matrix.vulkan && (matrix.os == 'linux') }}
-        run: |
-          wget -qO - https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo apt-key add -
-          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
-          sudo apt-get update -y
-          sudo apt-get install -y build-essential vulkan-sdk
-    
-      - name: Prepare Vulkan SDK Windows
-        if: ${{ matrix.vulkan && (matrix.os == 'windows') }}
-        continue-on-error: true
-        run: |
-          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/VulkanSDK-${env:VULKAN_VERSION}-Installer.exe"
-          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
-          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
-          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
-
       - name: Get Cer for code signing
         if: runner.os == 'macOS'
         run: base64 -d <<< "$CODE_SIGN_P12_BASE64" > /tmp/codesign.p12
@@ -347,11 +325,6 @@ jobs:
         run: |
           cat llama/version.txt
           make package
-
-      # - name: Run e2e testing
-      #   if: ${{ matrix.run-e2e }}
-      #   run: |
-      #     make run-e2e-test LLM_MODEL_URL=${{ env.LLM_MODEL_URL }} EMBEDDING_MODEL_URL=${{ env.EMBEDDING_MODEL_URL }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
