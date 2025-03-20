@@ -4,8 +4,6 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Daily at midnight UTC
   workflow_dispatch:  # Manual trigger
-  pull_request:
-    branches: [dev]
 
 jobs:
   sync-and-update:
@@ -136,7 +134,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
       run: |
         echo "Attempting to merge PR #$PR_NUMBER..."
-        gh pr merge $PR_NUMBER --repo menloresearch/llama.cpp --merge || MERGE_FAILED=$?
+        gh pr merge $PR_NUMBER --repo menloresearch/llama.cpp --merge --admin || MERGE_FAILED=$?
         
         if [ ! -z "$MERGE_FAILED" ]; then
           echo "Failed to merge PR. Error code: $MERGE_FAILED"
