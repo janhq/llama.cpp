@@ -4,9 +4,6 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Daily at midnight UTC
   workflow_dispatch:  # Manual trigger
-  pull_request:
-    branches:
-      - dev
 
 jobs:
   sync-and-update:
@@ -70,7 +67,7 @@ jobs:
 
         # Make sure branch contains master content before creating the PR
         git merge --no-edit master
-        
+
         git push origin $BRANCH_NAME --force
         
         PR_TITLE="Sync master with upstream release $LATEST_TAG"
@@ -152,7 +149,6 @@ jobs:
         echo "PR merged successfully!"
         
         # Create tag using master branch commit count
-        # We already have COMMIT_COUNT from master branch
         TAG_NAME="$COMMIT_COUNT"
         
         # Checkout dev to apply the tag
