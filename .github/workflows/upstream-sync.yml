@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Daily at midnight UTC
   workflow_dispatch:  # Manual trigger
+  pull_request:
+    branches:
+      - main
 
 jobs:
   sync-and-update:
@@ -42,7 +45,7 @@ jobs:
         git checkout -B master FETCH_HEAD
         git push origin master --force
         
-        # Count commits for tagging
+        # Count commits for tagging - this is the master branch commit count
         COMMIT_COUNT=$(git rev-list --count HEAD)
         echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_ENV
 
@@ -144,10 +147,13 @@ jobs:
         
         echo "PR merged successfully!"
         
-        # Create tag
+        # Create tag using master branch commit count
+        # We already have COMMIT_COUNT from master branch
+        TAG_NAME="$COMMIT_COUNT"
+        
+        # Checkout dev to apply the tag
         git fetch origin dev
         git checkout dev
-        TAG_NAME="b$COMMIT_COUNT"
         
         # Check if tag exists
         if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
