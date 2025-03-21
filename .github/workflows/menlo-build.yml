@@ -148,7 +148,7 @@ jobs:
           - os: "macos"
             name: "x64"
             runs-on: "macos-selfhosted-12"
-            cmake-flags: "-DGGML_METAL=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=ON"
+            cmake-flags: "-DCMAKE_BUILD_RPATH=\"@loader_path\" -DGGML_METAL=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=ON"
             run-e2e: false
             vulkan: false
             ccache: false
@@ -156,7 +156,7 @@ jobs:
           - os: "macos"
             name: "arm64"
             runs-on: "macos-selfhosted-12-arm64"
-            cmake-flags: "-DGGML_METAL_EMBED_LIBRARY=ON -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=ON"
+            cmake-flags: "-DCMAKE_BUILD_RPATH=\"@loader_path\" -DGGML_METAL_USE_BF16=ON -DGGML_METAL_EMBED_LIBRARY=ON -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=ON"
             run-e2e: false
             vulkan: false
             ccache: false
