@@ -16,7 +16,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        fetch-depth: 0  # Fetch all history for all branches and tags
         token: ${{ secrets.PAT_SERVICE_ACCOUNT }}
         ref: master
 
@@ -37,14 +37,20 @@ jobs:
         fi
         echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
         
-        # Update master branch
-        git fetch upstream $LATEST_TAG --depth=1
+        # Fetch complete history from upstream 
+        git fetch upstream --unshallow || git fetch upstream
+        
+        # Update master branch with latest release
+        git fetch upstream $LATEST_TAG
         git checkout -B master FETCH_HEAD
+        
+        # Push the updated master branch
         git push origin master --force
         
-        # Count commits for tagging - this is the master branch commit count
+        # Count all commits for tagging
         COMMIT_COUNT=$(git rev-list --count HEAD)
         echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_ENV
+        echo "Total commits in master branch: $COMMIT_COUNT"
 
     - name: Create PR to dev
       id: create_pr
@@ -149,17 +155,14 @@ jobs:
         echo "PR merged successfully!"
         
         # Create tag using master branch commit count
-        TAG_NAME="$COMMIT_COUNT"
-        
-        # Checkout dev to apply the tag
-        git fetch origin dev
-        git checkout dev
+        TAG_NAME="b$COMMIT_COUNT"
         
         # Check if tag exists
         if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
           echo "Tag $TAG_NAME already exists"
         else
+          # Create tag on the current commit (master branch HEAD)
           git tag "$TAG_NAME"
           git push origin "$TAG_NAME"
-          echo "Tag $TAG_NAME created successfully"
+          echo "Tag $TAG_NAME created successfully (total commits: $COMMIT_COUNT)"
         fi
