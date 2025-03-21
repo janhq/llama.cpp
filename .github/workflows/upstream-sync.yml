@@ -4,9 +4,6 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Daily at midnight UTC
   workflow_dispatch:  # Manual trigger
-  pull_request:
-    branches:
-      - dev
 
 jobs:
   sync-and-update:
