@@ -477,10 +477,10 @@ jobs:
           echo "    $(sha512sum /tmp/cudart-llama-bin-win-cu11.7-x64.tar.gz | awk '{ print $1 }')" >> checksum.yml
           echo "  size: $(stat -c%s /tmp/cudart-llama-bin-win-cu11.7-x64.tar.gz)" >> checksum.yml
 
-          echo "- url: cudart-llama-bin-win-cu12.4.tar.gz" >> checksum.yml
+          echo "- url: cudart-llama-bin-win-cu12.0-x64.tar.gz" >> checksum.yml
           echo "  sha512: >-" >> checksum.yml
-          echo "    $(sha512sum /tmp/cudart-llama-bin-win-cu12.4.tar.gz | awk '{ print $1 }')" >> checksum.yml
-          echo "  size: $(stat -c%s /tmp/cudart-llama-bin-win-cu12.4.tar.gz)" >> checksum.yml
+          echo "    $(sha512sum /tmp/cudart-llama-bin-win-cu12.0-x64.tar.gz | awk '{ print $1 }')" >> checksum.yml
+          echo "  size: $(stat -c%s /tmp/cudart-llama-bin-win-cu12.0-x64.tar.gz)" >> checksum.yml
           cat checksum.yml
 
       - name: Upload checksum.yml to GitHub Release
@@ -516,15 +516,15 @@ jobs:
           asset_name: cudart-llama-bin-linux-cu11.7-x64.tar.gz
           asset_content_type: application/gzip
       
-      - name: upload cudart-llama-bin-win-cu12.4.tar.gz to Github Release
+      - name: upload cudart-llama-bin-win-cu12.0-x64.tar.gz to Github Release
         uses: actions/upload-release-asset@v1
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-draft-release.outputs.upload_url }}
-          asset_path: /tmp/cudart-llama-bin-win-cu12.4.tar.gz
-          asset_name: cudart-llama-bin-win-cu12.4.tar.gz
+          asset_path: /tmp/cudart-llama-bin-win-cu12.0-x64.tar.gz
+          asset_name: cudart-llama-bin-win-cu12.0-x64.tar.gz
           asset_content_type: application/gzip
       
       - name: upload cudart-llama-bin-win-cu11.7-x64.tar.gz to Github Release
