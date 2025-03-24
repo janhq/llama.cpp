@@ -153,16 +153,19 @@ jobs:
         fi
         
         echo "PR merged successfully!"
+
+        git fetch origin dev
+        git checkout dev
         
         # Create tag using master branch commit count
         TAG_NAME="b$COMMIT_COUNT"
         
-        # Check if tag exists
-        if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-          echo "Tag $TAG_NAME already exists"
+        # Check if tag exists on dev branch
+        if git ls-remote --tags origin refs/tags/$TAG_NAME | grep -q refs/tags/$TAG_NAME; then
+          echo "Tag $TAG_NAME already exists on dev branch"
         else
-          # Create tag on the current commit (master branch HEAD)
+          # Create tag on the current commit (dev branch HEAD after merge)
           git tag "$TAG_NAME"
           git push origin "$TAG_NAME"
-          echo "Tag $TAG_NAME created successfully (total commits: $COMMIT_COUNT)"
+          echo "Tag $TAG_NAME created successfully (total commits from master: $COMMIT_COUNT)"
         fi
