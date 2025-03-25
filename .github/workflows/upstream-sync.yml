@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Daily at midnight UTC
   workflow_dispatch:  # Manual trigger
+  pull_request:
+    branches:
+      - dev
 
 jobs:
   sync-and-update:
@@ -155,7 +158,7 @@ jobs:
         echo "PR merged successfully!"
 
         git fetch origin dev
-        git checkout dev
+        git checkout -B dev origin/dev
         
         # Create tag using master branch commit count
         TAG_NAME="b$COMMIT_COUNT"
