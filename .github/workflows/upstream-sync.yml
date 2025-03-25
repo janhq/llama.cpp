@@ -155,7 +155,7 @@ jobs:
         echo "PR merged successfully!"
 
         git fetch origin dev
-        git checkout dev
+        git checkout -B dev origin/dev
         
         # Create tag using master branch commit count
         TAG_NAME="b$COMMIT_COUNT"
