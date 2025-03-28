@@ -156,10 +156,18 @@ jobs:
 
         git fetch origin dev
         git checkout -B dev origin/dev
-        
+    
         # Create tag using master branch commit count
         TAG_NAME="b$COMMIT_COUNT"
-        
+
+        # Delete the tag if it already exists (both locally and remotely)
+        if git tag -l "$TAG_NAME" | grep -q "$TAG_NAME"; then
+          echo "Tag $TAG_NAME already exists. Deleting it first..."
+          git tag -d "$TAG_NAME" || true
+          git push --delete origin "$TAG_NAME" || true
+          echo "Existing tag deleted."
+        fi
+
         # Create tag on the current commit (dev branch HEAD after merge)
         git tag "$TAG_NAME"
         git push origin "$TAG_NAME"
