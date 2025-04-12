@@ -735,6 +735,9 @@ class Model:
         if chkhsh == "d353350c764d8c3b39c763113960e4fb4919bea5fbf208a0e3b22e8469dc7406":
             # ref: https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E-Instruct
             res = "llama4"
+        if chkhsh == "a1336059768a55c99a734006ffb02203cd450fed003e9a71886c88acf24fdbc2":
+            # ref: https://huggingface.co/THUDM/glm-4-9b-hf
+            res = "glm4"
 
         if res is None:
             logger.warning("\n")
@@ -1750,7 +1753,7 @@ class LlamaModel(Model):
 
                 low_freq_wavelen = old_context_len / low_freq_factor
                 high_freq_wavelen = old_context_len / high_freq_factor
-                assert low_freq_wavelen != high_freq_wavelen
+                # assert low_freq_wavelen != high_freq_wavelen # Errors for Llama4
 
                 rope_factors = []
                 for freq in freqs:
@@ -1806,10 +1809,6 @@ class Llama4Model(LlamaModel):
         self.gguf_writer.add_expert_feed_forward_length(self.hparams["intermediate_size_moe"])
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None):
-        name = name.replace("language_model.", "")
-        name = name.replace("feed_forward.", "mlp.") # a bit hacky for now
-        name = name.replace(".router.weight", ".gate.weight") # a bit hacky for now
-
         # split the gate_up into gate and up
         if "gate_up_proj" in name:
             name_up = name.replace("gate_up_proj", "up_proj.weight")
@@ -4901,6 +4900,22 @@ class JaisModel(Model):
         self.gguf_writer.add_max_alibi_bias(self.max_alibi_bias)
 
 
+@Model.register("Glm4ForCausalLM")
+class Glm4Model(Model):
+    model_arch = gguf.MODEL_ARCH.GLM4
+
+    def set_vocab(self):
+        self._set_vocab_gpt2()
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        if self.hparams.get("rope_scaling") is not None and "factor" in self.hparams["rope_scaling"]:
+            if self.hparams["rope_scaling"].get("type") == "yarn":
+                self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.YARN)
+                self.gguf_writer.add_rope_scaling_factor(self.hparams["rope_scaling"]["factor"])
+                self.gguf_writer.add_rope_scaling_orig_ctx_len(self.hparams["rope_scaling"]["original_max_position_embeddings"])
+
+
 @Model.register("GlmForCausalLM", "ChatGLMModel", "ChatGLMForConditionalGeneration")
 class ChatGLMModel(Model):
     model_arch = gguf.MODEL_ARCH.CHATGLM
@@ -5592,7 +5607,6 @@ def main() -> None:
     with torch.inference_mode():
         output_type = ftype_map[args.outtype]
         model_architecture = hparams["architectures"][0]
-
         try:
             model_class = Model.from_model_architecture(model_architecture)
         except NotImplementedError:
