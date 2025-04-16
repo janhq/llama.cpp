@@ -1,0 +1,174 @@
+name: Sync Upstream and Update Dev
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight UTC
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  sync-and-update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for all branches and tags
+        token: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+        ref: master
+
+    - name: Setup
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git remote add upstream https://github.com/ggml-org/llama.cpp.git || true
+
+    - name: Sync with latest release
+      id: sync
+      run: |
+        # Get latest release tag
+        LATEST_TAG=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r '.tag_name')
+        if [[ -z "$LATEST_TAG" || "$LATEST_TAG" == "null" ]]; then
+          echo "No valid release found. Exiting."
+          exit 1
+        fi
+        echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+        
+        # Fetch complete history from upstream 
+        git fetch upstream --unshallow || git fetch upstream
+        
+        # Update master branch with latest release
+        git fetch upstream $LATEST_TAG
+        git checkout -B master FETCH_HEAD
+        
+        # Push the updated master branch
+        git push origin master --force
+        
+        # Count all commits for tagging
+        COMMIT_COUNT=$(git rev-list --count HEAD)
+        echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_ENV
+        echo "Total commits in master branch: $COMMIT_COUNT"
+
+    - name: Create PR to dev
+      id: create_pr
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+      run: |
+        git fetch origin dev
+        git diff --quiet master origin/dev || HAS_DIFF=$?
+        
+        if [ -z "$HAS_DIFF" ]; then
+          echo "No differences found between master and dev. Skipping PR creation."
+          echo "SKIP_PR=true" >> $GITHUB_ENV
+          exit 0
+        else
+          echo "Found differences between master and dev. Creating PR..."
+        fi
+        
+        BRANCH_NAME="update-dev-from-master-$(date +'%Y-%m-%d-%H-%M')"
+        git checkout -b $BRANCH_NAME
+
+        # Make sure branch contains master content before creating the PR
+        git merge --no-edit master
+
+        git push origin $BRANCH_NAME --force
+        
+        PR_TITLE="Sync master with upstream release $LATEST_TAG"
+        PR_BODY="Updates dev branch with latest release ($LATEST_TAG) from ggml-org/llama.cpp"
+        
+        gh pr create \
+          --repo menloresearch/llama.cpp \
+          --title "$PR_TITLE" \
+          --body "$PR_BODY" \
+          --head "$BRANCH_NAME" \
+          --base dev || PR_FAILED=$?
+        
+        echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+        
+        if [ ! -z "$PR_FAILED" ]; then
+          echo "Failed to create PR. Error code: $PR_FAILED"
+          echo "SKIP_PR=true" >> $GITHUB_ENV
+          exit 0
+        fi
+        
+        PR_NUMBER=$(gh pr list --repo menloresearch/llama.cpp --head "$BRANCH_NAME" --json number --jq '.[0].number')
+        
+        if [[ -z "$PR_NUMBER" ]]; then
+          echo "Failed to get PR number"
+          echo "SKIP_PR=true" >> $GITHUB_ENV
+          exit 0
+        fi
+        
+        echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+
+    - name: Wait for CI checks
+      id: wait_for_ci
+      if: ${{ env.SKIP_PR != 'true' }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+      run: |
+        echo "Waiting for CI checks to complete..."
+        while true; do
+          ci_completed=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json completedAt --jq '.[].completedAt')
+          
+          # If there are no CI checks, proceed with merge
+          if [[ -z "$ci_completed" ]]; then
+            echo "No CI checks detected. Proceeding with merge."
+            break
+          fi
+          
+          # Check if any checks are still running
+          if echo "$ci_completed" | grep -q "0001-01-01T00:00:00Z"; then
+            echo "CI is still running, waiting..."
+            sleep 60
+          else
+            echo "CI has completed, checking states..."
+            ci_states=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json state --jq '.[].state')
+            if echo "$ci_states" | grep -vqE "SUCCESS|SKIPPED"; then
+              echo "CI failed, exiting..."
+              echo "SKIP_MERGE=true" >> $GITHUB_ENV
+              exit 0
+            else
+              echo "CI passed, proceeding with merge..."
+              break
+            fi
+          fi
+        done
+
+    - name: Merge PR and create tag
+      if: ${{ env.SKIP_PR != 'true' && env.SKIP_MERGE != 'true' }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
+      run: |
+        echo "Attempting to merge PR #$PR_NUMBER..."
+        gh pr merge $PR_NUMBER --repo menloresearch/llama.cpp --merge --admin || MERGE_FAILED=$?
+        
+        if [ ! -z "$MERGE_FAILED" ]; then
+          echo "Failed to merge PR. Error code: $MERGE_FAILED"
+          echo "Manual intervention required."
+          exit 0
+        fi
+        
+        echo "PR merged successfully!"
+
+        git fetch origin dev
+        git checkout -B dev origin/dev
+    
+        # Create tag using master branch commit count
+        TAG_NAME="b$COMMIT_COUNT"
+
+        # Delete the tag if it already exists (both locally and remotely)
+        if git tag -l "$TAG_NAME" | grep -q "$TAG_NAME"; then
+          echo "Tag $TAG_NAME already exists. Deleting it first..."
+          git tag -d "$TAG_NAME" || true
+          git push --delete origin "$TAG_NAME" || true
+          echo "Existing tag deleted."
+        fi
+
+        # Create tag on the current commit (dev branch HEAD after merge)
+        git tag "$TAG_NAME"
+        git push origin "$TAG_NAME"
+        echo "Tag $TAG_NAME created successfully (total commits from master: $COMMIT_COUNT)"
