@@ -53,3 +53,4 @@ else ifeq ($(shell uname -s),Linux)
 else
 	@tar -czvf llama.tar.gz build/bin;
 endif
+
