@@ -203,9 +203,6 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
     }
 
     // llava-1.5, llava-1.6, Yi-VL, Yi-34B, granite: don't need to add prefix and suffix
-    // for glm-edge, we don't need to add because the tokens are already in the returned embeddings
-
-    // TODO @ngxson : glm-edge : remove BOI / EOI tokens embeddings, decode them as normal tokens
 
     std::vector<std::string> parts = string_split_str(prompt_modified, ctx->image_marker);
     output.clear();
@@ -246,7 +243,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
     };
 
     for (const auto & part : parts) {
-        //printf("tokenizing part: %s\n", part.c_str());
+        // printf("tokenizing part: %s\n", part.c_str());
         bool add_bos = &parts.front() == &part;
         auto tokens = mtmd_tokenize_text_internal(vocab, part, text.add_special && add_bos, text.parse_special);
         if (tokens.empty()) {
@@ -337,11 +334,6 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 LOG_DBG("image_tokens->nx = %d\n", image_tokens->nx);
                 LOG_DBG("image_tokens->ny = %d\n", image_tokens->ny);
                 LOG_DBG("batch_f32 size = %d\n", (int)image_tokens->batch_f32.entries.size());
-
-                if (clip_is_glm(ctx->ctx_clip)) {
-                    // glm-edge
-                    image_tokens->nx += 2; // add 2 for the begin_of_image and end_of_image token embeddings
-                }
 
                 mtmd_input_chunk chunk{
                     MTMD_INPUT_CHUNK_TYPE_IMAGE,
