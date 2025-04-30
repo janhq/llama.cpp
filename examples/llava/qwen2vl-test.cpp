@@ -27,6 +27,8 @@
 #include <cassert>
 #include <cmath>
 
+// THIS FILE IS ONLY USED FOR TESTING THE QWEN2VL MODEL
+// IT IS NOT A PRODUCTION CODE
 
 static bool qwen2vl_eval_image_embed(llama_context * ctx_llama, const struct llava_image_embed * image_embed,
                                      int n_batch, int * n_past, int * st_pos_id, struct clip_image_size * image_size) {

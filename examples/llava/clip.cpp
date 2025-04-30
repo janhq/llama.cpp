@@ -2825,15 +2825,18 @@ void clip_free(clip_ctx * ctx) {
     delete ctx;
 }
 
+// deprecated
 size_t clip_embd_nbytes(const struct clip_ctx * ctx) {
-    return clip_n_patches(ctx) * clip_n_mmproj_embd(ctx) * sizeof(float);
+    const int32_t nx = ctx->vision_model.hparams.image_size;
+    const int32_t ny = ctx->vision_model.hparams.image_size;
+    return clip_embd_nbytes_by_img(ctx, nx, ny);
 }
 
-size_t clip_embd_nbytes_by_img(const struct clip_ctx * ctx, int img_h, int img_w) {
+size_t clip_embd_nbytes_by_img(const struct clip_ctx * ctx, int img_w, int img_h) {
     clip_image_f32 img;
     img.nx = img_w;
     img.ny = img_h;
-    return clip_n_patches_by_img(ctx, &img) * clip_n_mmproj_embd(ctx) * sizeof(float);
+    return clip_n_output_tokens(ctx, &img) * clip_n_mmproj_embd(ctx) * sizeof(float);
 }
 
 int32_t clip_get_image_size(const struct clip_ctx * ctx) {
@@ -2863,14 +2866,37 @@ size_t get_clip_image_grid_size(const struct clip_ctx * ctx) {
     return ctx->vision_model.hparams.image_grid_pinpoints.size();
 }
 
+// deprecated
 int clip_n_patches(const struct clip_ctx * ctx) {
     clip_image_f32 img;
     img.nx = ctx->vision_model.hparams.image_size;
     img.ny = ctx->vision_model.hparams.image_size;
-    return clip_n_patches_by_img(ctx, &img);
+    return clip_n_output_tokens(ctx, &img);
 }
 
+// deprecated
 int clip_n_patches_by_img(const struct clip_ctx * ctx, struct clip_image_f32 * img) {
+    return clip_n_output_tokens(ctx, img);
+}
+
+int clip_n_output_tokens_x(const struct clip_ctx * ctx, struct clip_image_f32 * img) {
+    const auto & params = ctx->vision_model.hparams;
+    const int n_total = clip_n_output_tokens(ctx, img);
+    if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL || ctx->proj_type == PROJECTOR_TYPE_QWEN25VL) {
+        return img->nx / (params.patch_size * 2) + (int)(img->nx % params.patch_size > 0);
+    }
+    return n_total;
+}
+
+int clip_n_output_tokens_y(const struct clip_ctx * ctx, struct clip_image_f32 * img) {
+    const auto & params = ctx->vision_model.hparams;
+    if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL || ctx->proj_type == PROJECTOR_TYPE_QWEN25VL) {
+        return img->ny / (params.patch_size * 2) + (int)(img->ny % params.patch_size > 0);
+    }
+    return 1;
+}
+
+int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * img) {
     const auto & params = ctx->vision_model.hparams;
 
     int n_patches = (params.image_size / params.patch_size) * (params.image_size / params.patch_size);
