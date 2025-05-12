@@ -42,7 +42,7 @@ else ifeq ($(shell uname -s),Linux)
 	@echo "Skipping Code Sign for linux"
 	@exit 0
 else
-	find "llama" -type f -exec codesign --force -s "$(DEVELOPER_ID)" --options=runtime {} \;
+	find "build/bin" -type f -exec codesign --force -s "$(DEVELOPER_ID)" --options=runtime {} \;
 endif
 
 package:
