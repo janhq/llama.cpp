@@ -123,6 +123,7 @@ struct common_chat_templates_inputs {
     common_chat_tool_choice tool_choice = COMMON_CHAT_TOOL_CHOICE_AUTO;
     bool parallel_tool_calls = false;
     common_reasoning_format reasoning_format = COMMON_REASONING_FORMAT_NONE;
+    bool enable_thinking = true;
     std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
 };
 
@@ -181,7 +182,8 @@ std::string common_chat_format_example(
     const struct common_chat_templates * tmpls,
     bool use_jinja);
 
-std::string               common_chat_format_name(common_chat_format format);
+const char*               common_chat_format_name(common_chat_format format);
+const char*               common_reasoning_format_name(common_reasoning_format format);
 common_chat_msg           common_chat_parse(const std::string & input, bool is_partial, const common_chat_syntax & syntax);
 
 common_chat_tool_choice common_chat_tool_choice_parse_oaicompat(const std::string & tool_choice);

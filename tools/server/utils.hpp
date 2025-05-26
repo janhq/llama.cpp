@@ -568,6 +568,7 @@ struct oaicompat_parser_options {
     common_chat_templates * tmpls;
     bool allow_image;
     bool allow_audio;
+    bool enable_thinking = true;
 };
 
 // used by /chat/completions endpoint
@@ -731,7 +732,9 @@ static json oaicompat_chat_params_parse(
     inputs.grammar               = grammar;
     inputs.use_jinja             = opt.use_jinja;
     inputs.parallel_tool_calls   = json_value(body, "parallel_tool_calls", false);
+    inputs.add_generation_prompt = json_value(body, "add_generation_prompt", true);
     inputs.reasoning_format      = opt.reasoning_format;
+    inputs.enable_thinking       = opt.enable_thinking;
     if (!inputs.tools.empty() && inputs.tool_choice != COMMON_CHAT_TOOL_CHOICE_NONE && body.contains("grammar")) {
         throw std::runtime_error("Cannot use custom grammar constraints with tools.");
     }
