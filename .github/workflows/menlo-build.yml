@@ -347,7 +347,7 @@ jobs:
           sudo apt-get install -y build-essential vulkan-sdk
     
       - name: Prepare Vulkan SDK Windows
-        if: ${{ matrix.vulkan && (matrix.os == 'windows') }}
+        if: ${{ matrix.vulkan && (matrix.os == 'win') }}
         continue-on-error: true
         run: |
           curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/VulkanSDK-${env:VULKAN_VERSION}-Installer.exe"
