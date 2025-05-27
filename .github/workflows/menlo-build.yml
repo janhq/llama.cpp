@@ -346,25 +346,19 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y build-essential vulkan-sdk
     
-      # - name: Prepare Vulkan SDK Windows
-      #   if: ${{ matrix.vulkan && (matrix.os == 'win') }}
-      #   # continue-on-error: true
-      #   run: |
-      #     curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/VulkanSDK-${env:VULKAN_VERSION}-Installer.exe"
-      #     Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
-      #     Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
-
       - name: Prepare Vulkan SDK Windows
-        if: ${{ matrix.vulkan && matrix.os == 'win' }}
-        shell: pwsh
+        if: ${{ matrix.vulkan && (matrix.os == 'win') }}
+        # continue-on-error: true
         run: |
-          $version = "${{ env.VULKAN_VERSION }}"
-          $url = "https://sdk.lunarg.com/sdk/download/$version/windows/VulkanSDK-$version-Installer.exe"
-          $installer = "$env:RUNNER_TEMP\VulkanSDK-Installer.exe"
-          Invoke-WebRequest -Uri $url -OutFile $installer
-          Start-Process -FilePath $installer -ArgumentList "--accept-licenses", "--default-answer", "--confirm-command", "install" -Wait
-          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$version"
-          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$version\Bin"
+          Write-Host "VULKAN_VERSION: $env:VULKAN_VERSION"
+          $url = "https://sdk.lunarg.com/sdk/download/$env:VULKAN_VERSION/windows/VulkanSDK-$env:VULKAN_VERSION-Installer.exe"
+          Write-Host "Downloading from URL: $url"
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/VulkanSDK-${env:VULKAN_VERSION}-Installer.exe"
+          Write-Host "Expected VULKAN_SDK path: C:\VulkanSDK\$env:VULKAN_VERSION"
+          Write-Host "Expected PATH addition: C:\VulkanSDK\$env:VULKAN_VERSION\bin"
+          # https://sdk.lunarg.com/sdk/download/1.3.261.1/windows/VulkanSDK-1.3.261.1-Installer.exe
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
 
       - name: Get Cer for code signing
         if: runner.os == 'macOS'
