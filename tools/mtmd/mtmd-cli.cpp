@@ -284,7 +284,9 @@ int main(int argc, char ** argv) {
     if (is_single_turn) {
         g_is_generating = true;
         if (params.prompt.find(mtmd_default_marker()) == std::string::npos) {
-            params.prompt += mtmd_default_marker();
+            for (size_t i = 0; i < params.image.size(); i++) {
+                params.prompt += mtmd_default_marker();
+            }
         }
         common_chat_msg msg;
         msg.role = "user";

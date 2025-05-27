@@ -1125,6 +1125,7 @@ class TensorNameMap:
 
         MODEL_TENSOR.A_POST_NORM: (
             "audio_tower.layer_norm", # ultravox
+            "audio_tower.ln_post", # qwen2omni
         ),
 
         MODEL_TENSOR.A_ENC_ATTN_Q: (
@@ -1161,12 +1162,16 @@ class TensorNameMap:
             "audio_tower.layers.{bid}.fc2", # ultravox
         ),
 
+        # note: some tensors below has "audio." pseudo-prefix, to prevent conflicts with vision tensors
+        # this prefix is added in the conversion code in modify_tensors()
+
         MODEL_TENSOR.A_MMPROJ: (
             "audio.multi_modal_projector.linear_{bid}", # ultravox
         ),
 
         MODEL_TENSOR.A_MMPROJ_FC: (
             "audio.multi_modal_projector.linear", # qwen2audio
+            "audio_tower.proj", # qwen2omni
         ),
 
         MODEL_TENSOR.A_MM_NORM_PRE: (
