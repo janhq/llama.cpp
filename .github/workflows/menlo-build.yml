@@ -38,6 +38,7 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV && echo "::set-output name=version::${GITHUB_REF#refs/tags/}"
         env:
           GITHUB_REF: ${{ github.ref }}
+          VULKAN_VERSION: 1.3.261.1
       - name: Create Draft Release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -144,7 +145,15 @@ jobs:
             run-e2e: false
             vulkan: false
             ccache: true
-            ccache-dir: "/home/runner/.ccache"       
+            ccache-dir: "/home/runner/.ccache" 
+          - os: "linux"
+            name: "vulkan-x64"
+            runs-on: "ubuntu-22-04"
+            cmake-flags: "-DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_SERVER=ON -DGGML_VULKAN=ON -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: true
+            ccache: true
+            ccache-dir: "/home/runner/.ccache"
           - os: "macos"
             name: "x64"
             runs-on: "macos-selfhosted-12"
@@ -257,6 +266,14 @@ jobs:
             vulkan: false
             ccache: false
             ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
+          - os: "win"
+            name: "vulkan-x64"
+            runs-on: "windows-cuda-11-7"
+            cmake-flags: "-DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_SERVER=ON -DGGML_VULKAN=ON -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja"
+            vulkan: true
+            run-e2e: false
+            ccache: false
+            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
           
 
     steps:
@@ -320,6 +337,23 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install coreutils
+      
+      - name: Prepare Vulkan SDK Linux
+        if: ${{ matrix.vulkan && (matrix.os == 'linux') }}
+        run: |
+          wget -qO - https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo apt-key add -
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential vulkan-sdk
+    
+      - name: Prepare Vulkan SDK Windows
+        if: ${{ matrix.vulkan && (matrix.os == 'windows') }}
+        continue-on-error: true
+        run: |
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/VulkanSDK-${env:VULKAN_VERSION}-Installer.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
 
       - name: Get Cer for code signing
         if: runner.os == 'macOS'
