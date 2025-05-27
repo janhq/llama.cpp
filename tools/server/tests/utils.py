@@ -328,6 +328,10 @@ class ServerProcess:
                     if 'function' not in tc:
                         raise ValueError(f"Expected function type, got {tc['type']}")
                     if tc['index'] >= len(tool_calls):
+                        assert 'id' in tc
+                        assert tc.get('type') == 'function'
+                        assert 'function' in tc and 'name' in tc['function'] and len(tc['function']['name']) > 0, \
+                            f"Expected function call with name, got {tc.get('function')}"
                         tool_calls.append(dict(
                             id="",
                             type="function",
@@ -340,10 +344,10 @@ class ServerProcess:
                     if tc.get('id') is not None:
                         tool_call['id'] = tc['id']
                     fct = tc['function']
+                    assert 'id' not in fct, f"Function call should not have id: {fct}"
                     if fct.get('name') is not None:
-                        tool_call['function']['name'] = fct['name']
+                        tool_call['function']['name'] = tool_call['function'].get('name', '') + fct['name']
                     if fct.get('arguments') is not None:
-                        assert len(fct['arguments']) > 0, f'Expected non empty arguments delta!'
                         tool_call['function']['arguments'] += fct['arguments']
 
             print(f'Streamed response had {content_parts} content parts, {tool_call_parts} tool call parts incl. {arguments_parts} arguments parts')

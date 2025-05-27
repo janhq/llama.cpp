@@ -735,8 +735,11 @@ static json oaicompat_chat_params_parse(
     inputs.add_generation_prompt = json_value(body, "add_generation_prompt", true);
     inputs.reasoning_format      = opt.reasoning_format;
     inputs.enable_thinking       = opt.enable_thinking;
-    if (!inputs.tools.empty() && inputs.tool_choice != COMMON_CHAT_TOOL_CHOICE_NONE && body.contains("grammar")) {
-        throw std::runtime_error("Cannot use custom grammar constraints with tools.");
+    if (!inputs.tools.empty() && inputs.tool_choice != COMMON_CHAT_TOOL_CHOICE_NONE) {
+        if (body.contains("grammar")) {
+            throw std::runtime_error("Cannot use custom grammar constraints with tools.");
+        }
+        llama_params["parse_tool_calls"] = true;
     }
 
     // if the assistant message appears at the end of list, we do not add end-of-turn token

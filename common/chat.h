@@ -144,6 +144,7 @@ struct common_chat_syntax {
     // Whether reasoning_content should be inlined in the content (e.g. for reasoning_format=deepseek in stream mode)
     bool                     reasoning_in_content  = false;
     bool                     thinking_forced_open  = false;
+    bool                     parse_tool_calls      = true;
 };
 
 // Check if the template supplied via "--chat-template" is supported or not. Returns true if it's valid

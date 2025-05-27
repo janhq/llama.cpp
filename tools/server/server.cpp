@@ -364,6 +364,7 @@ struct server_task {
             params.oaicompat_chat_syntax.reasoning_format = params_base.reasoning_format;
             params.oaicompat_chat_syntax.reasoning_in_content = params.stream;
             params.oaicompat_chat_syntax.thinking_forced_open = json_value(data, "thinking_forced_open", false);
+            params.oaicompat_chat_syntax.parse_tool_calls = json_value(data, "parse_tool_calls", false);
         }
 
         {
@@ -3394,13 +3395,7 @@ struct server_context {
                 batch.logits   + i,
             };
 
-            int ret = 0;
-
-            if (do_encode) {
-                ret = llama_encode(ctx, batch_view);
-            } else {
-                ret = llama_decode(ctx, batch_view);
-            }
+            const int ret = llama_decode(ctx, batch_view);
 
             metrics.on_decoded(slots);
 
