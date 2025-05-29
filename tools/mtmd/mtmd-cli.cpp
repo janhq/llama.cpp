@@ -7,6 +7,7 @@
 #include "console.h"
 #include "chat.h"
 #include "mtmd.h"
+#include "mtmd-helper.h"
 
 #include <vector>
 #include <limits.h>
@@ -143,7 +144,7 @@ struct mtmd_cli_context {
     }
 
     bool load_media(const std::string & fname) {
-        mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(fname.c_str()));
+        mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(ctx_vision.get(), fname.c_str()));
         if (!bmp.ptr) {
             return false;
         }

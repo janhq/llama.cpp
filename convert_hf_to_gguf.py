@@ -423,19 +423,19 @@ class ModelBase:
         try:
             # for security reason, we don't allow loading remote code by default
             # if a model need remote code, we will fallback to config.json
-            return AutoConfig.from_pretrained(dir_model, trust_remote_code=False).to_dict()
+            config = AutoConfig.from_pretrained(dir_model, trust_remote_code=False).to_dict()
         except Exception as e:
             logger.warning(f"Failed to load model config from {dir_model}: {e}")
             logger.warning("Trying to load config.json instead")
             with open(dir_model / "config.json", "r", encoding="utf-8") as f:
                 config = json.load(f)
-                if "llm_config" in config:
-                    # rename for InternVL
-                    config["text_config"] = config["llm_config"]
-                if "thinker_config" in config:
-                    # rename for Qwen2.5-Omni
-                    config["text_config"] = config["thinker_config"]["text_config"]
-                return config
+        if "llm_config" in config:
+            # rename for InternVL
+            config["text_config"] = config["llm_config"]
+        if "thinker_config" in config:
+            # rename for Qwen2.5-Omni
+            config["text_config"] = config["thinker_config"]["text_config"]
+        return config
 
     @classmethod
     def register(cls, *names: str) -> Callable[[AnyModel], AnyModel]:
@@ -1207,7 +1207,7 @@ class MmprojModel(ModelBase):
             self.gguf_writer.add_audio_block_count(self.find_aparam(self.n_block_keys))
             self.gguf_writer.add_audio_head_count(self.find_aparam(["num_attention_heads"]))
 
-        else:
+        if not self.has_vision_encoder and not self.has_audio_encoder:
             raise ValueError("MmprojModel must have either vision or audio encoder")
 
     def write_vocab(self):
@@ -1841,7 +1841,8 @@ class StableLMModel(TextModel):
     "MistralForCausalLM",
     "MixtralForCausalLM",
     "VLlama3ForCausalLM",
-    "LlavaForConditionalGeneration")
+    "LlavaForConditionalGeneration",
+    "LlamaModel")
 class LlamaModel(TextModel):
     model_arch = gguf.MODEL_ARCH.LLAMA
     undo_permute = True
@@ -1921,6 +1922,8 @@ class LlamaModel(TextModel):
 
         if is_vision_tensor:
             return [] # skip vision tensors
+        elif self.hf_arch == "LlamaModel":
+            name = "model." + name
         elif name.startswith("model.text_model"):
             name = name.replace("text_model.", "") # for SmolVLM
         elif name.startswith("language_model."):
@@ -2169,6 +2172,9 @@ class Llama4VisionModel(MmprojModel):
             # process vision tensors
             if "positional_embedding_vlm" in name and ".weight" not in name:
                 name += ".weight"
+            if "multi_modal_projector.linear_1" in name:
+                # despite the name with number postfix, this is a single fully connected layer
+                return [(gguf.TENSOR_NAMES[gguf.MODEL_TENSOR.V_MMPROJ_FC], data_torch)]
             return [(self.map_tensor_name(name), data_torch)]
         return []
 
@@ -3676,7 +3682,7 @@ class InternLM3Model(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@ModelBase.register("BertModel", "BertForMaskedLM", "CamembertModel")
+@ModelBase.register("BertModel", "BertForMaskedLM", "CamembertModel", "BertForSequenceClassification")
 class BertModel(TextModel):
     model_arch = gguf.MODEL_ARCH.BERT
 
@@ -3738,6 +3744,13 @@ class BertModel(TextModel):
 
         if name.startswith("cls.seq_relationship"):
             return []
+
+        # For BertForSequenceClassification (direct projection layer)
+        if name == "classifier.weight":
+            name = "classifier.out_proj.weight"
+
+        if name == "classifier.bias":
+            name = "classifier.out_proj.bias"
 
         return [(self.map_tensor_name(name), data_torch)]
 

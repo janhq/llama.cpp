@@ -902,7 +902,6 @@ class TensorNameMap:
 
         MODEL_TENSOR.V_MMPROJ_FC: (
             "model.connector.modality_projection.proj", # SmolVLM
-            "multi_modal_projector.linear_1", # llama 4
         ),
 
         MODEL_TENSOR.V_MMPROJ_MLP: (
