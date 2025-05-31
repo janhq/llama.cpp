@@ -2114,7 +2114,7 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
             case LLM_ARCH_NOMIC_BERT_MOE:
                 {
                     tok_embd     = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD,  "weight"), {n_embd, n_vocab}, 0);
-                    type_embd    = create_tensor(tn(LLM_TENSOR_TOKEN_TYPES, "weight"), {n_embd, n_token_types}, 0);
+                    type_embd    = create_tensor(tn(LLM_TENSOR_TOKEN_TYPES, "weight"), {n_embd, n_token_types}, TENSOR_NOT_REQUIRED);
 
                     if (arch == LLM_ARCH_BERT) {
                         pos_embd = create_tensor(tn(LLM_TENSOR_POS_EMBD,    "weight"), {n_embd, n_ctx_train}, 0);
@@ -5885,8 +5885,10 @@ struct llm_build_bert : public llm_graph_context {
         inpL = build_inp_embd(model.tok_embd);
 
         // token types are hardcoded to zero ("Sentence A")
-        ggml_tensor * type_row0 = ggml_view_1d(ctx0, model.type_embd, n_embd, 0);
-        inpL = ggml_add(ctx0, inpL, type_row0);
+        if (model.type_embd) {
+            ggml_tensor * type_row0 = ggml_view_1d(ctx0, model.type_embd, n_embd, 0);
+            inpL = ggml_add(ctx0, inpL, type_row0);
+        }
         if (model.arch == LLM_ARCH_BERT) {
             inpL = ggml_add(ctx0, ggml_get_rows(ctx0, model.pos_embd, inp_pos), inpL);
         }
@@ -13260,7 +13262,6 @@ llm_graph_result_ptr llama_model::build_graph(
 
     switch (arch) {
         case LLM_ARCH_LLAMA:
-        case LLM_ARCH_MINICPM:
             {
                 llm = std::make_unique<llm_build_llama>(*this, params, gf);
             } break;
@@ -13501,6 +13502,7 @@ llm_graph_result_ptr llama_model::build_graph(
             } break;
         case LLM_ARCH_GRANITE:
         case LLM_ARCH_GRANITE_MOE:
+        case LLM_ARCH_MINICPM:
             {
                 llm = std::make_unique<llm_build_granite>(*this, params, gf);
             } break;
