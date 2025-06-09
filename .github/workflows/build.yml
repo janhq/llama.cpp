@@ -726,7 +726,6 @@ jobs:
       matrix:
         include:
           - build: 'cpu-x64 (static)'
-            arch: 'x64'
             defines: '-G "Ninja Multi-Config" -D CMAKE_TOOLCHAIN_FILE=cmake/x64-windows-llvm.cmake -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DGGML_RPC=ON -DBUILD_SHARED_LIBS=OFF'
           - build: 'openblas-x64'
             arch: 'x64'
