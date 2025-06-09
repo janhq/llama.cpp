@@ -38,6 +38,7 @@
 #include <unistd.h>
 #include <functional>
 #include <optional>
+#include <optional>
 
 #include "../include/ggml-cann.h"
 #include "../include/ggml.h"
@@ -359,7 +360,7 @@ struct ggml_backend_cann_context {
         ggml_cann_set_device(device);
         description = aclrtGetSocName();
 
-        async_mode = parse_bool(get_env("GGML_CANN_ASYNC_MODE").value_or(""));
+        bool async_mode = parse_bool(get_env("GGML_CANN_ASYNC_MODE").value_or(""));
         GGML_LOG_INFO("%s: device %d async operator submission is %s\n", __func__,
             device, async_mode ? "ON" : "OFF");
     }
