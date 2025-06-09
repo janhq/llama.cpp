@@ -6,7 +6,6 @@
 #include "ggml-impl.h"
 #include "ggml-cpu.h"
 #include "ggml-cpu-impl.h"
-#include "simd-mappings.h"
 #include "traits.h"
 
 #include <cmath>
