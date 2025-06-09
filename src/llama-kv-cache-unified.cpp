@@ -462,7 +462,7 @@ bool llama_kv_cache_unified::update(llama_context * lctx, bool do_shift, const d
             for (uint32_t i = 0; i < n_kv; ++i) {
                 assert(dinfo.ids[i] <= n_kv);
 
-                if (dinfo.ids[i] == n_kv) {
+                if (dinfo.ids[i] == n_kv || dinfo.ids[i] == i) {
                     continue;
                 }
 
@@ -944,11 +944,9 @@ llm_graph_result_ptr llama_kv_cache_unified::build_graph_shift(
     const auto & n_embd_head_k = hparams.n_embd_head_k;
   //const auto & n_embd_head_v = hparams.n_embd_head_v;
 
-    //GGML_ASSERT(kv_self->size == n_ctx);
-
     auto inp = std::make_unique<llm_graph_input_k_shift>(this);
 
-    inp->k_shift = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, cparams.n_ctx);
+    inp->k_shift = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, cells.size());
     ggml_set_input(inp->k_shift);
 
     for (const auto & layer : layers) {
