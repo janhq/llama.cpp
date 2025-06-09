@@ -659,6 +659,28 @@ ggml_tensor * llm_graph_context::build_ffn(
                 cur = ggml_mul(ctx0, x0, x1);
                 cb(cur, "ffn_mul", il);
             } break;
+        case LLM_FFN_GEGLU:
+            {
+                // Split into two equal parts
+                int64_t split_point = cur->ne[0] / 2;
+                ggml_tensor * output_ffn_up = ggml_cont(ctx0, ggml_view_2d(
+                                                ctx0, cur, split_point,
+                                                cur->ne[1], cur->nb[1], 0
+                                            ));
+                ggml_tensor * output_ffn_gate = ggml_cont(ctx0, ggml_view_2d(
+                                                ctx0, cur, split_point,
+                                                cur->ne[1], cur->nb[1],
+                                                split_point * ggml_element_size(cur)
+                                            ));
+
+                // Apply GELU activation function to the first part
+                output_ffn_up = ggml_gelu(ctx0, output_ffn_up);
+                cb(output_ffn_up, "ffn_gelu", il);
+
+                // Element-wise multiplication between the activated part and the gate part
+                cur = ggml_mul(ctx0, output_ffn_up, output_ffn_gate);
+                cb(cur, "ffn_geglu", il);
+            } break;
     }
 
     if (gate && type_gate == LLM_FFN_PAR) {
