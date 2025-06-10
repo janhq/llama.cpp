@@ -5000,6 +5000,8 @@ class JinaBertV2Model(BertModel):
             self.gguf_writer.add_token_type_count(2)
         else:
             raise NotImplementedError(f'Tokenizer {tokenizer_class} is not supported for JinaBertModel')
+        self.gguf_writer.add_add_bos_token(True)
+        self.gguf_writer.add_add_eos_token(True)
 
 
 @ModelBase.register("OpenELMForCausalLM")
