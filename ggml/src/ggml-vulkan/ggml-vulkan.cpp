@@ -3679,12 +3679,11 @@ static void ggml_vk_instance_init() {
 
     }
 
-    size_t num_available_devices = vk_instance.instance.enumeratePhysicalDevices().size();
-    vk_perf_logger_enabled = getenv("GGML_VK_PERF_LOGGER") != nullptr;
-
     // Emulate behavior of CUDA_VISIBLE_DEVICES for Vulkan
     char * devices_env = getenv("GGML_VK_VISIBLE_DEVICES");
     if (devices_env != nullptr) {
+        size_t num_available_devices = vk_instance.instance.enumeratePhysicalDevices().size();
+
         size_t num_available_devices = vk_instance.instance.enumeratePhysicalDevices().size();
 
         std::string devices(devices_env);
