@@ -7972,8 +7972,13 @@ struct llm_build_plamo : public llm_graph_context {
                         model.layers[il].wo, NULL,
                         Qcur, Kcur, Vcur, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
             }
+            ggml_tensor * sa_out = cur;
 
-            if (il == n_layer - 1 && inp_out_ids) {
+            cur = attention_norm;
+
+            if (il == n_layer - 1) {
+                // skip computing output for unused tokens
+                ggml_tensor * inp_out_ids = build_inp_out_ids();
                 cur    = ggml_get_rows(ctx0,    cur, inp_out_ids);
                 sa_inp = ggml_get_rows(ctx0, sa_inp, inp_out_ids);
                 inpL   = ggml_get_rows(ctx0,   inpL, inp_out_ids);
@@ -9674,9 +9679,7 @@ struct llm_build_mamba : public llm_graph_context {
         // {n_embd, n_tokens}
         inpL = build_inp_embd(model.tok_embd);
 
-        auto * rs_inp = build_rs_inp();
-
-        ggml_tensor * inp_out_ids = build_inp_out_ids();
+        ggml_tensor * state_copy = build_inp_s_copy();
 
         for (int il = 0; il < n_layer; ++il) {
             // norm
@@ -9685,7 +9688,7 @@ struct llm_build_mamba : public llm_graph_context {
                     LLM_NORM_RMS, il);
             cb(cur, "attn_norm", il);
 
-            cur = build_mamba_layer(rs_inp, gf, cur, ubatch, il);
+            cur = build_mamba_layer(gf, cur, state_copy, ubatch, il);
 
             if (il == n_layer - 1 && inp_out_ids) {
                 cur  = ggml_get_rows(ctx0,  cur, inp_out_ids);
@@ -9721,12 +9724,12 @@ struct llm_build_mamba : public llm_graph_context {
 
     // TODO: split
     ggml_tensor * build_mamba_layer(
-        llm_graph_input_rs * inp,
-               ggml_cgraph * gf,
-               ggml_tensor * cur,
-        const llama_ubatch & ubatch,
-                       int   il) const {
-        const auto * mctx_cur = static_cast<const llama_memory_recurrent_context *>(mctx);
+             ggml_cgraph * gf,
+             ggml_tensor * cur,
+             ggml_tensor * state_copy,
+      const llama_ubatch & ubatch,
+                     int   il) const {
+        const auto * kv_state = static_cast<const llama_kv_cache_recurrent_state *>(mstate);
 
         const auto kv_head = mctx_cur->get_head();
 
@@ -9750,13 +9753,13 @@ struct llm_build_mamba : public llm_graph_context {
         ggml_tensor * ssm_states_all  = mctx_cur->get_s_l(il);
 
         // (ab)using the KV cache to store the states
-        ggml_tensor * conv = build_rs(
-                inp, gf, conv_states_all,
-                hparams.n_embd_r(), n_seqs);
+        ggml_tensor * conv = build_recurrent_state(
+                gf, conv_states_all, state_copy,
+                hparams.n_embd_k_s(), n_seqs);
         conv = ggml_reshape_3d(ctx0, conv, d_conv - 1, d_inner, n_seqs);
-        ggml_tensor * ssm = build_rs(
-                inp, gf, ssm_states_all,
-                hparams.n_embd_s(), n_seqs);
+        ggml_tensor * ssm = build_recurrent_state(
+                gf, ssm_states_all, state_copy,
+                hparams.n_embd_v_s(), n_seqs);
         ssm = ggml_reshape_3d(ctx0, ssm, d_state, d_inner, n_seqs);
 
         // {n_embd, n_tokens} => {n_embd, n_seq_tokens, n_seqs}
@@ -12469,6 +12472,7 @@ struct llm_build_rwkv6_base : public llm_graph_context {
             ggml_cgraph * gf,
             ggml_tensor * cur,
             ggml_tensor * x_prev,
+            ggml_tensor * state_copy,
             const llama_ubatch & ubatch,
             int   il) const {
         const auto * mctx_cur = static_cast<const llama_memory_recurrent_context *>(mctx);
@@ -12592,9 +12596,9 @@ struct llm_build_rwkv6_base : public llm_graph_context {
             k = ggml_sub(ctx0, k, ggml_mul(ctx0, k, w));
         }
 
-        ggml_tensor * wkv_state = build_rs(
-                inp, gf, mctx_cur->get_s_l(il),
-                hparams.n_embd_s(), n_seqs);
+        ggml_tensor * wkv_state = build_recurrent_state(
+                gf, kv_state->get_v_l(il), state_copy,
+                hparams.n_embd_v_s(), n_seqs);
 
         ggml_tensor * wkv_output;
         if (is_qrwkv) {
@@ -12648,7 +12652,7 @@ struct llm_build_rwkv6 : public llm_build_rwkv6_base {
         inpL = build_inp_embd(model.tok_embd);
         inpL = build_norm(inpL, model.tok_norm, model.tok_norm_b, LLM_NORM, -1);
 
-        auto * rs_inp = build_rs_inp();
+        ggml_tensor * state_copy = build_inp_s_copy();
 
         const auto n_embd = hparams.n_embd;
         const auto n_seq_tokens = ubatch.n_seq_tokens;
@@ -12660,7 +12664,9 @@ struct llm_build_rwkv6 : public llm_build_rwkv6_base {
             const llama_layer * layer = &model.layers[il];
             inpL = ggml_reshape_3d(ctx0, inpL, n_embd, n_seq_tokens, n_seqs);
 
-            ggml_tensor * token_shift = build_rwkv_token_shift_load(rs_inp, gf, ubatch, il);
+            ggml_tensor * token_shift = build_rwkv_token_shift_load(
+                    gf, state_copy, ubatch, il
+                    );
 
             ggml_tensor * att_shift = ggml_view_3d(ctx0, token_shift, n_embd, 1, n_seqs, token_shift->nb[1], token_shift->nb[2], 0);
             ggml_tensor * ffn_shift = ggml_view_3d(ctx0, token_shift, n_embd, 1, n_seqs, token_shift->nb[1], token_shift->nb[2], n_embd * ggml_element_size(token_shift));
@@ -12675,7 +12681,7 @@ struct llm_build_rwkv6 : public llm_build_rwkv6_base {
                     1
                     );
 
-            cur = build_rwkv6_time_mix(rs_inp, gf, att_norm, x_prev, ubatch, il);
+            cur = build_rwkv6_time_mix(gf, att_norm, x_prev, state_copy, ubatch, il);
 
             ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpL);
             cb(ffn_inp, "ffn_inp", il);
@@ -12748,7 +12754,7 @@ struct llm_build_rwkv6qwen2 : public llm_build_rwkv6_base {
 
         inpL = build_inp_embd(model.tok_embd);
 
-        auto * rs_inp = build_rs_inp();
+        ggml_tensor * state_copy = build_inp_s_copy();
 
         const auto n_embd = hparams.n_embd;
         const auto n_seq_tokens = ubatch.n_seq_tokens;
@@ -12760,7 +12766,9 @@ struct llm_build_rwkv6qwen2 : public llm_build_rwkv6_base {
             const llama_layer * layer = &model.layers[il];
             inpL = ggml_reshape_3d(ctx0, inpL, n_embd, n_seq_tokens, n_seqs);
 
-            ggml_tensor * token_shift = build_rwkv_token_shift_load(rs_inp, gf, ubatch, il);
+            ggml_tensor * token_shift = build_rwkv_token_shift_load(
+                    gf, state_copy, ubatch, il
+                    );
 
             ggml_tensor * att_norm = build_norm(inpL, layer->attn_norm, layer->attn_norm_b, LLM_NORM_RMS, il);
             cb(att_norm, "attn_norm", il);
@@ -12772,7 +12780,7 @@ struct llm_build_rwkv6qwen2 : public llm_build_rwkv6_base {
                     1
                     );
 
-            cur = build_rwkv6_time_mix(rs_inp, gf, att_norm, x_prev, ubatch, il);
+            cur = build_rwkv6_time_mix(gf, att_norm, x_prev, state_copy, ubatch, il);
 
             token_shift = ggml_view_3d(ctx0, att_norm, n_embd, 1, n_seqs, att_norm->nb[1], att_norm->nb[2], (n_seq_tokens-1)*n_embd*ggml_element_size(att_norm));
             ggml_build_forward_expand(gf, build_rwkv_token_shift_store(token_shift, ubatch, il));
@@ -12865,6 +12873,7 @@ struct llm_build_rwkv7_base : public llm_graph_context {
             ggml_cgraph * gf,
             ggml_tensor * cur,
             ggml_tensor * x_prev,
+            ggml_tensor * state_copy,
             ggml_tensor *& first_layer_value,
             const llama_ubatch & ubatch,
             int   il) const {
@@ -12947,9 +12956,9 @@ struct llm_build_rwkv7_base : public llm_graph_context {
         v = ggml_reshape_3d(ctx0, v, head_size, head_count, n_tokens);
         a = ggml_reshape_3d(ctx0, a, head_size, head_count, n_tokens);
 
-        ggml_tensor * wkv_state = build_rs(
-                inp, gf, mctx_cur->get_s_l(il),
-                hparams.n_embd_s(), n_seqs);
+        ggml_tensor * wkv_state = build_recurrent_state(
+                gf, kv_state->get_v_l(il), state_copy,
+                hparams.n_embd_v_s(), n_seqs);
 
         ggml_tensor * wkv_output = ggml_rwkv_wkv7(ctx0, r, w, k, v, ggml_neg(ctx0, kk), ggml_mul(ctx0, kk, a), wkv_state);
         cur = ggml_view_1d(ctx0, wkv_output, n_embd * n_tokens, 0);
@@ -13005,7 +13014,7 @@ struct llm_build_rwkv7 : public llm_build_rwkv7_base {
         inpL = build_inp_embd(model.tok_embd);
         inpL = build_norm(inpL, model.tok_norm, model.tok_norm_b, LLM_NORM, -1);
 
-        auto * rs_inp = build_rs_inp();
+        ggml_tensor * state_copy = build_inp_s_copy();
 
         const auto n_embd = hparams.n_embd;
         const auto n_seq_tokens = ubatch.n_seq_tokens;
@@ -13017,7 +13026,9 @@ struct llm_build_rwkv7 : public llm_build_rwkv7_base {
             const llama_layer * layer = &model.layers[il];
             inpL = ggml_reshape_3d(ctx0, inpL, n_embd, n_seq_tokens, n_seqs);
 
-            ggml_tensor * token_shift = build_rwkv_token_shift_load(rs_inp, gf, ubatch, il);
+            ggml_tensor * token_shift = build_rwkv_token_shift_load(
+                    gf, state_copy, ubatch, il
+                    );
 
             ggml_tensor * att_shift = ggml_view_3d(ctx0, token_shift, n_embd, 1, n_seqs, token_shift->nb[1], token_shift->nb[2], 0);
             ggml_tensor * ffn_shift = ggml_view_3d(ctx0, token_shift, n_embd, 1, n_seqs, token_shift->nb[1], token_shift->nb[2], n_embd * ggml_element_size(token_shift));
@@ -13032,7 +13043,7 @@ struct llm_build_rwkv7 : public llm_build_rwkv7_base {
                     1
                     );
 
-            cur = build_rwkv7_time_mix(rs_inp, gf, att_norm, x_prev, v_first, ubatch, il);
+            cur = build_rwkv7_time_mix(gf, att_norm, x_prev, state_copy, v_first, ubatch, il);
 
             ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpL);
             cb(ffn_inp, "ffn_inp", il);
@@ -13100,7 +13111,7 @@ struct llm_build_arwkv7 : public llm_build_rwkv7_base {
 
         inpL = build_inp_embd(model.tok_embd);
 
-        auto * rs_inp = build_rs_inp();
+        ggml_tensor * state_copy = build_inp_s_copy();
 
         const auto n_embd = hparams.n_embd;
         const auto n_seq_tokens = ubatch.n_seq_tokens;
@@ -13112,7 +13123,9 @@ struct llm_build_arwkv7 : public llm_build_rwkv7_base {
             const llama_layer * layer = &model.layers[il];
             inpL = ggml_reshape_3d(ctx0, inpL, n_embd, n_seq_tokens, n_seqs);
 
-            ggml_tensor * token_shift = build_rwkv_token_shift_load(rs_inp, gf, ubatch, il);
+            ggml_tensor * token_shift = build_rwkv_token_shift_load(
+                    gf, state_copy, ubatch, il
+                    );
 
             ggml_tensor * att_norm = build_norm(inpL, layer->attn_norm, layer->attn_norm_b, LLM_NORM_RMS, il);
             cb(att_norm, "attn_norm", il);
@@ -13124,7 +13137,7 @@ struct llm_build_arwkv7 : public llm_build_rwkv7_base {
                     1
                     );
 
-            cur = build_rwkv7_time_mix(rs_inp, gf, att_norm, x_prev, v_first, ubatch, il);
+            cur = build_rwkv7_time_mix(gf, att_norm, x_prev, state_copy, v_first, ubatch, il);
 
             token_shift = ggml_view_3d(ctx0, att_norm, n_embd, 1, n_seqs, att_norm->nb[1], att_norm->nb[2], (n_seq_tokens-1)*n_embd*ggml_element_size(att_norm));
             ggml_build_forward_expand(gf, build_rwkv_token_shift_store(token_shift, ubatch, il));

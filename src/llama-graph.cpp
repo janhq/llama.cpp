@@ -191,21 +191,23 @@ void llm_graph_input_cls::set_input(const llama_ubatch * ubatch) {
         GGML_ASSERT(ggml_backend_buffer_is_host(cls->buffer));
 
         uint32_t * data = (uint32_t *) cls->data;
-        memset(cls->data, 0, n_seqs_unq*ggml_element_size(cls));
+        memset(cls->data, 0, n_tokens * ggml_element_size(cls));
 
-        std::vector<int> last_pos(n_seqs_unq, -1);
-        std::vector<int> last_row(n_seqs_unq, -1);
+        std::vector<int> last_pos(n_tokens, -1);
+        std::vector<int> last_row(n_tokens, -1);
 
-        for (int i = 0; i < n_tokens; ++i) {
-            const llama_pos pos = ubatch->pos[i];
+        for (int s = 0; s < n_seqs; ++s) {
+            const llama_seq_id seq_id = ubatch->seq_id[s][0];
 
-            for (int s = 0; s < ubatch->n_seq_id[i]; ++s) {
-                const llama_seq_id seq_id  = ubatch->seq_id[i][s];
-                const int32_t      seq_idx = ubatch->seq_idx[seq_id];
+            // TODO: adapt limits to n_seqs when ubatch->equal_seqs is true
+            GGML_ASSERT(seq_id < n_tokens && "seq_id cannot be larger than n_tokens with pooling_type == LAST");
 
-                if (pos >= last_pos[seq_idx]) {
-                    last_pos[seq_idx] = pos;
-                    last_row[seq_idx] = i;
+            for (int i = 0; i < n_seq_tokens; ++i) {
+                const llama_pos pos = ubatch->pos[s*n_seq_tokens + i];
+
+                if (pos >= last_pos[seq_id]) {
+                    last_pos[seq_id] = pos;
+                    last_row[seq_id] = s*n_seq_tokens + i;
                 }
             }
         }
@@ -228,8 +230,8 @@ void llm_graph_input_rs::set_input(const llama_ubatch * ubatch) {
         int32_t * data = (int32_t *) s_copy->data;
 
         // assuming copy destinations ALWAYS happen ONLY on the cells between head and head+n
-        for (uint32_t i = 0; i < n_rs; ++i) {
-            data[i] = mctx->s_copy(i);
+        for (uint32_t i = 0; i < n_kv; ++i) {
+            data[i] = kv_state->s_copy(i);
         }
     }
 }
@@ -962,7 +964,24 @@ ggml_tensor * llm_graph_context::build_inp_cls() const {
 
     auto & cur = inp->cls;
 
-    cur = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, ubatch.n_seqs_unq);
+    cur = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tokens);
+    ggml_set_input(cur);
+
+    res->add_input(std::move(inp));
+
+    return cur;
+}
+
+ggml_tensor * llm_graph_context::build_inp_s_copy() const {
+    const auto * kv_state = static_cast<const llama_kv_cache_recurrent_state *>(mstate);
+
+    auto inp = std::make_unique<llm_graph_input_s_copy>(kv_state);
+
+    const auto n_kv = kv_state->get_n_kv();
+
+    auto & cur = inp->s_copy;
+
+    cur = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_kv);
     ggml_set_input(cur);
 
     res->add_input(std::move(inp));
@@ -1425,19 +1444,27 @@ ggml_tensor * llm_graph_context::build_attn(
     return cur;
 }
 
-ggml_tensor * llm_graph_context::build_copy_mask_state(
+ggml_tensor * llm_graph_context::build_recurrent_state(
          ggml_cgraph * gf,
          ggml_tensor * s,
          ggml_tensor * state_copy,
-         ggml_tensor * state_mask,
-             int32_t   n_state,
-             int32_t   n_seqs) const {
+             int32_t   state_size,
+             int32_t   n_seqs,
+                bool   avoid_copies) const {
     const auto * kv_state = static_cast<const llama_kv_cache_recurrent_state *>(mstate);
 
     const auto n_kv    = kv_state->get_n_kv();
     const auto kv_head = kv_state->get_head();
+    const auto rs_zero = kv_state->get_rs_z();
 
-    ggml_tensor * states = ggml_reshape_2d(ctx0, s, n_state, kv_state->get_size());
+    ggml_tensor * states = ggml_reshape_2d(ctx0, s, state_size, kv_state->get_size());
+
+    // Clear a single state which will then be copied to the other cleared states.
+    // Note that this is a no-op when the view is zero-sized.
+    ggml_tensor * state_zero = ggml_view_1d(ctx0, states, state_size*(rs_zero >= 0), rs_zero*states->nb[1]*(rs_zero >= 0));
+    ggml_build_forward_expand(gf, ggml_scale_inplace(ctx0, state_zero, 0));
+
+    ggml_tensor * output_states;
 
     // copy states
     // NOTE: assuming the copy destinations are ALL contained between kv_head and kv_head + n_kv
@@ -1448,7 +1475,8 @@ ggml_tensor * llm_graph_context::build_copy_mask_state(
     // FIXME: zero-out NANs?
     states = ggml_mul(ctx0, states, state_mask);
 
-    // copy states which won't be changed further (between n_seqs and n_kv)
+    // copy extra states which won't be changed further (between n_seqs and n_kv)
+    ggml_tensor * states_extra = ggml_get_rows(ctx0, states, ggml_view_1d(ctx0, state_copy, n_kv - n_seqs, n_seqs*state_copy->nb[0]));
     ggml_build_forward_expand(gf,
         ggml_cpy(ctx0,
             states_extra,
@@ -1457,47 +1485,10 @@ ggml_tensor * llm_graph_context::build_copy_mask_state(
     return output_states;
 }
 
-llm_graph_input_rs * llm_graph_context::build_rs_inp() const {
-    const auto * mctx_cur = static_cast<const llama_memory_recurrent_context *>(mctx);
-
-    auto inp = std::make_unique<llm_graph_input_rs>(mctx_cur);
-
-    const auto n_rs = mctx_cur->get_n_rs();
-
-    inp->s_copy = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_rs);
-    ggml_set_input(inp->s_copy);
-
-    return (llm_graph_input_rs *) res->add_input(std::move(inp));
-}
-
-ggml_tensor * llm_graph_context::build_rs(
-        llm_graph_input_rs * inp,
-        ggml_cgraph * gf,
-        ggml_tensor * s,
-            int32_t   state_size,
-            int32_t   n_seqs,
-               bool   avoid_copies) const {
-    const auto * mctx_cur = static_cast<const llama_memory_recurrent_context *>(mctx);
-
-    return build_rs(gf, s, inp->s_copy, state_size, n_seqs, mctx_cur->get_n_rs(), mctx_cur->get_head(), mctx_cur->get_size(), mctx_cur->get_rs_z(), avoid_copies);
-}
-
-ggml_tensor * llm_graph_context::build_rs(
-        llm_graph_input_mem_hybrid * inp,
-        ggml_cgraph * gf,
-        ggml_tensor * s,
-            int32_t   state_size,
-            int32_t   n_seqs,
-               bool   avoid_copies) const {
-    const auto * mctx_cur = static_cast<const llama_memory_hybrid_context *>(mctx)->get_recr();
-
-    return build_rs(gf, s, inp->s_copy, state_size, n_seqs, mctx_cur->get_n_rs(), mctx_cur->get_head(), mctx_cur->get_size(), mctx_cur->get_rs_z(), avoid_copies);
-}
-
 ggml_tensor * llm_graph_context::build_rwkv_token_shift_load(
-    llm_graph_input_rs * inp,
-           ggml_cgraph * gf,
-    const llama_ubatch & ubatch,
+         ggml_cgraph * gf,
+         ggml_tensor * state_copy,
+  const llama_ubatch & ubatch,
                  int   il) const {
     const auto * mctx_cur = static_cast<const llama_memory_recurrent_context *>(mctx);
 
@@ -1507,9 +1498,9 @@ ggml_tensor * llm_graph_context::build_rwkv_token_shift_load(
 
     ggml_tensor * token_shift_all = mctx_cur->get_r_l(il);
 
-    ggml_tensor * token_shift = build_rs(
-            inp, gf, token_shift_all,
-            hparams.n_embd_r(), n_seqs);
+    ggml_tensor * token_shift = build_recurrent_state(
+            gf, token_shift_all, state_copy,
+            hparams.n_embd_k_s(), n_seqs);
 
     token_shift = ggml_reshape_3d(ctx0, token_shift, hparams.n_embd, token_shift_count, n_seqs);
 

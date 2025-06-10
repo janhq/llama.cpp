@@ -429,7 +429,9 @@ bool llama_memory_recurrent::prepare(const std::vector<llama_ubatch> & ubatches)
     return success;
 }
 
-bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
+bool llama_kv_cache_recurrent::find_slot(const llama_ubatch & ubatch) {
+    const uint32_t n_seqs = ubatch.n_seqs;
+
     const uint32_t n_seq_tokens = ubatch.n_seq_tokens;
     const uint32_t n_seqs       = ubatch.n_seqs;
 
@@ -539,7 +541,7 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
             seq_meta.tail = next_empty_cell;
             // find next empty cell
             if (s + 1 < n_seqs) {
-                for (uint32_t j = 0; j < size; ++j) {
+                for (uint32_t i = 0; i < size; ++i) {
                     next_empty_cell += 1;
                     if (next_empty_cell >= size) { next_empty_cell -= size; }
                     auto & cell = cells[next_empty_cell];
@@ -553,9 +555,8 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
 
     // gather and re-order
     for (uint32_t s = 0; s < n_seqs; ++s) {
-        const uint32_t i = s*n_seq_tokens;
         const int32_t dst_id = s + min;
-        const int32_t src_id = cells[ubatch.seq_id[i][0]].tail;
+        const int32_t src_id = cells[ubatch.seq_id[s][0]].tail;
         if (dst_id != src_id) {
             auto & dst_cell = cells[dst_id];
             auto & src_cell = cells[src_id];
@@ -565,8 +566,8 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
             std::swap(dst_cell.seq_id, src_cell.seq_id);
 
             // swap tails
-            for (uint32_t j = 0; j < size; ++j) {
-                int32_t & tail = cells[j].tail;
+            for (uint32_t i = 0; i < size; ++i) {
+                int32_t & tail = cells[i].tail;
                 if (tail == src_id) {
                     tail = dst_id;
                 } else if (tail == dst_id) {
@@ -578,10 +579,9 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
 
     // update the pos of the used seqs
     for (uint32_t s = 0; s < n_seqs; ++s) {
-        const uint32_t i = s*n_seq_tokens;
-        const llama_pos last_pos = ubatch.pos[i + n_seq_tokens - 1];
+        const llama_pos last_pos = ubatch.pos[n_seq_tokens * s + n_seq_tokens - 1];
         const int32_t cell_id = s + min;
-        auto & cell = cells[cell_id];
+        kv_cell & cell = cells[cell_id];
 
         if (cell.pos >= 0 && last_pos != cell.pos + (llama_pos) n_seq_tokens) {
             // What should happen when the pos backtracks or skips a value?
@@ -634,13 +634,13 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
     head = min;
     n    = max - min + 1;
     used = std::count_if(cells.begin(), cells.end(),
-        [](const mem_cell & cell){ return !cell.is_empty(); });
+        [](const kv_cell & cell){ return !cell.is_empty(); });
 
     // sanity check
     return n >= n_seqs;
 }
 
-bool llama_memory_recurrent::get_can_shift() const {
+bool llama_kv_cache_recurrent::get_can_shift() const {
     // shifting the pos is trivial for recurrent models
     return true;
 }
@@ -1104,8 +1104,12 @@ uint32_t llama_memory_recurrent_context::get_head() const {
     return is_full ? 0 : mem->head;
 }
 
-int32_t llama_memory_recurrent_context::get_rs_z() const {
-    return is_full ? 0 : mem->rs_z;
+int32_t llama_kv_cache_recurrent_state::get_rs_z() const {
+    return is_full ? 0 : kv->rs_z;
+}
+
+uint32_t llama_kv_cache_recurrent_state::get_size() const {
+    return kv->size;
 }
 
 uint32_t llama_memory_recurrent_context::get_size() const {
@@ -1116,10 +1120,6 @@ ggml_tensor * llama_memory_recurrent_context::get_r_l(int32_t il) const {
     return mem->r_l[il];
 }
 
-ggml_tensor * llama_memory_recurrent_context::get_s_l(int32_t il) const {
-    return mem->s_l[il];
-}
-
-int32_t llama_memory_recurrent_context::s_copy(int i) const {
-    return  mem->cells[i + mem->head].src0;
+int32_t llama_kv_cache_recurrent_state::s_copy(int i) const {
+    return  kv->cells[i + kv->head].src0;
 }
