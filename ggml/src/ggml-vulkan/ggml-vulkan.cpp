@@ -102,6 +102,18 @@ static bool is_pow2(uint32_t x) { return x > 1 && (x & (x-1)) == 0; }
 
 struct ggml_backend_vk_context;
 
+struct vk_queue {
+    uint32_t queue_family_index;
+    vk::Queue queue;
+    vk::CommandPool pool;
+    uint32_t cmd_buffer_idx;
+    std::vector<vk::CommandBuffer> cmd_buffers;
+
+    vk::PipelineStageFlags stage_flags;
+
+    bool transfer_only;
+};
+
 #define MAX_PARAMETER_COUNT 8
 
 struct vk_pipeline_struct {
@@ -988,13 +1000,6 @@ struct ggml_backend_vk_context {
     std::vector<vk::DescriptorSet> descriptor_sets;
     uint32_t descriptor_set_idx {};
     uint32_t pipeline_descriptor_set_requirements {};
-
-    vk_command_pool compute_cmd_pool;
-    vk_command_pool transfer_cmd_pool;
-
-    // number of additional consecutive nodes that are being fused with the
-    // node currently being processed
-    uint32_t num_additional_fused_ops {};
 };
 
 static void * const vk_ptr_base = (void *)(uintptr_t) 0x1000;  // NOLINT
@@ -1280,7 +1285,7 @@ static void ggml_pipeline_allocate_descriptor_sets(ggml_backend_vk_context * ctx
     }
 }
 
-static vk::CommandBuffer ggml_vk_create_cmd_buffer(vk_device& device, vk_command_pool& p) {
+static vk::CommandBuffer ggml_vk_create_cmd_buffer(vk_device& device, vk_queue& q) {
     VK_LOG_DEBUG("ggml_vk_create_cmd_buffer()");
 
     if (p.cmd_buffers.size() > p.cmd_buffer_idx) {
@@ -9409,8 +9414,8 @@ static void ggml_vk_graph_cleanup(ggml_backend_vk_context * ctx) {
     }
     ctx->gc.temp_buffers.clear();
 
-    ggml_vk_command_pool_cleanup(ctx->device, ctx->compute_cmd_pool);
-    ggml_vk_command_pool_cleanup(ctx->device, ctx->transfer_cmd_pool);
+    ggml_vk_queue_cleanup(ctx->device, ctx->device->compute_queue);
+    ggml_vk_queue_cleanup(ctx->device, ctx->device->transfer_queue);
 
     for (size_t i = 0; i < ctx->gc.semaphores.size(); i++) {
         ctx->device->device.destroySemaphore({ ctx->gc.semaphores[i].s });
@@ -9465,9 +9470,6 @@ static void ggml_vk_cleanup(ggml_backend_vk_context * ctx) {
     }
     ctx->descriptor_pools.clear();
     ctx->descriptor_sets.clear();
-
-    ctx->compute_cmd_pool.destroy(ctx->device->device);
-    ctx->transfer_cmd_pool.destroy(ctx->device->device);
 }
 
 static int ggml_vk_get_device_count() {
