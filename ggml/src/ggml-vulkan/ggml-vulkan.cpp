@@ -102,18 +102,6 @@ static bool is_pow2(uint32_t x) { return x > 1 && (x & (x-1)) == 0; }
 
 struct ggml_backend_vk_context;
 
-struct vk_queue {
-    uint32_t queue_family_index;
-    vk::Queue queue;
-    vk::CommandPool pool;
-    uint32_t cmd_buffer_idx;
-    std::vector<vk::CommandBuffer> cmd_buffers;
-
-    vk::PipelineStageFlags stage_flags;
-
-    bool transfer_only;
-};
-
 #define MAX_PARAMETER_COUNT 8
 
 struct vk_pipeline_struct {
@@ -179,11 +167,6 @@ struct vk_command_pool {
 
     vk_queue *q;
 };
-
-// Prevent simultaneous submissions to the same queue.
-// This could be per vk_queue if we stopped having two vk_queue structures
-// sharing the same vk::Queue.
-static std::mutex queue_mutex;
 
 struct vk_queue {
     uint32_t queue_family_index;
@@ -1000,6 +983,9 @@ struct ggml_backend_vk_context {
     std::vector<vk::DescriptorSet> descriptor_sets;
     uint32_t descriptor_set_idx {};
     uint32_t pipeline_descriptor_set_requirements {};
+
+    vk_command_pool compute_cmd_pool;
+    vk_command_pool transfer_cmd_pool;
 };
 
 static void * const vk_ptr_base = (void *)(uintptr_t) 0x1000;  // NOLINT
@@ -1285,7 +1271,7 @@ static void ggml_pipeline_allocate_descriptor_sets(ggml_backend_vk_context * ctx
     }
 }
 
-static vk::CommandBuffer ggml_vk_create_cmd_buffer(vk_device& device, vk_queue& q) {
+static vk::CommandBuffer ggml_vk_create_cmd_buffer(vk_device& device, vk_command_pool& p) {
     VK_LOG_DEBUG("ggml_vk_create_cmd_buffer()");
 
     if (p.cmd_buffers.size() > p.cmd_buffer_idx) {
@@ -1309,7 +1295,6 @@ static vk::CommandBuffer ggml_vk_create_cmd_buffer(vk_device& device, vk_queue& 
 static void ggml_vk_submit(vk_context& ctx, vk::Fence fence) {
     if (ctx->seqs.empty()) {
         if (fence) {
-            std::lock_guard<std::mutex> guard(queue_mutex);
             ctx->p->q->queue.submit({}, fence);
         }
         return;
@@ -1379,7 +1364,6 @@ static void ggml_vk_submit(vk_context& ctx, vk::Fence fence) {
         }
     }
 
-    std::lock_guard<std::mutex> guard(queue_mutex);
     ctx->p->q->queue.submit(submit_infos, fence);
 
     ctx->seqs.clear();
@@ -4493,7 +4477,7 @@ static void ggml_vk_buffer_write_2d(vk_buffer& dst, size_t offset, const void * 
             memcpy((uint8_t *)dst->ptr + offset + i * width, (const uint8_t *) src + i * spitch, width);
         }
     } else {
-        std::lock_guard<std::recursive_mutex> guard(dst->device->mutex);
+        std::lock_guard<std::mutex> guard(dst->device->mutex);
 
         vk_context subctx = ggml_vk_create_temporary_context(dst->device->transfer_queue.cmd_pool);
         ggml_vk_ctx_begin(dst->device, subctx);
@@ -4584,7 +4568,7 @@ static void ggml_vk_buffer_read(vk_buffer& src, size_t offset, void * dst, size_
 
         memcpy(dst, (uint8_t *) src->ptr + offset, size);
     } else {
-        std::lock_guard<std::recursive_mutex> guard(src->device->mutex);
+        std::lock_guard<std::mutex> guard(src->device->mutex);
 
         vk_context subctx = ggml_vk_create_temporary_context(src->device->transfer_queue.cmd_pool);
         ggml_vk_ctx_begin(src->device, subctx);
@@ -4614,9 +4598,10 @@ static void ggml_vk_buffer_copy_async(vk_context& ctx, vk_buffer& dst, size_t ds
 
 static void ggml_vk_buffer_copy(vk_buffer& dst, size_t dst_offset, vk_buffer& src, size_t src_offset, size_t size) {
     if (src->device == dst->device) {
-        std::lock_guard<std::recursive_mutex> guard(src->device->mutex);
+        std::lock_guard<std::mutex> guard(src->device->mutex);
         VK_LOG_DEBUG("ggml_vk_buffer_copy(SINGLE_DEVICE, " << size << ")");
         // Copy within the device
+        vk_context subctx = ggml_vk_create_temporary_context(src->device->transfer_queue.cmd_pool);
         vk_context subctx = ggml_vk_create_temporary_context(src->device->transfer_queue.cmd_pool);
         ggml_vk_ctx_begin(src->device, subctx);
         ggml_vk_buffer_copy_async(subctx, dst, dst_offset, src, src_offset, size);
@@ -4649,7 +4634,7 @@ static void ggml_vk_buffer_memset_async(vk_context& ctx, vk_buffer& dst, size_t 
 static void ggml_vk_buffer_memset(vk_buffer& dst, size_t offset, uint32_t c, size_t size) {
     VK_LOG_DEBUG("ggml_vk_buffer_memset(" << offset << ", " << c << ", " << size << ")");
 
-    std::lock_guard<std::recursive_mutex> guard(dst->device->mutex);
+    std::lock_guard<std::mutex> guard(dst->device->mutex);
     vk_context subctx = ggml_vk_create_temporary_context(dst->device->transfer_queue.cmd_pool);
     ggml_vk_ctx_begin(dst->device, subctx);
     subctx->s->buffer.fillBuffer(dst->buffer, offset, size, c);
@@ -9414,8 +9399,8 @@ static void ggml_vk_graph_cleanup(ggml_backend_vk_context * ctx) {
     }
     ctx->gc.temp_buffers.clear();
 
-    ggml_vk_queue_cleanup(ctx->device, ctx->device->compute_queue);
-    ggml_vk_queue_cleanup(ctx->device, ctx->device->transfer_queue);
+    ggml_vk_command_pool_cleanup(ctx->device, ctx->compute_cmd_pool);
+    ggml_vk_command_pool_cleanup(ctx->device, ctx->transfer_cmd_pool);
 
     for (size_t i = 0; i < ctx->gc.semaphores.size(); i++) {
         ctx->device->device.destroySemaphore({ ctx->gc.semaphores[i].s });
@@ -9470,6 +9455,9 @@ static void ggml_vk_cleanup(ggml_backend_vk_context * ctx) {
     }
     ctx->descriptor_pools.clear();
     ctx->descriptor_sets.clear();
+
+    ctx->compute_cmd_pool.destroy(ctx->device->device);
+    ctx->transfer_cmd_pool.destroy(ctx->device->device);
 }
 
 static int ggml_vk_get_device_count() {
