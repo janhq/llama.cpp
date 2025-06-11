@@ -130,7 +130,7 @@ if (NOT WIN32)
         ${CMAKE_CURRENT_SOURCE_DIR}/test-tokenizers-repo.sh
         NAME test-tokenizers-ggml-vocabs
         WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
-        ARGS https://huggingface.co/ggml-org/vocabs ${CMAKE_CURRENT_SOURCE_DIR}/../models/ggml-vocabs
+        ARGS https://huggingface.co/ggml-org/vocabs ${PROJECT_SOURCE_DIR}/models/ggml-vocabs
     )
 endif()
 
