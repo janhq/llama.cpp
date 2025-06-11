@@ -156,6 +156,9 @@ llama_kv_cache_unified::llama_kv_cache_unified(
 
     const char * LLAMA_KV_CACHE_DEBUG = getenv("LLAMA_KV_CACHE_DEBUG");
     debug = LLAMA_KV_CACHE_DEBUG ? atoi(LLAMA_KV_CACHE_DEBUG) : 0;
+
+    const char * LLAMA_KV_CACHE_DEBUG = getenv("LLAMA_KV_CACHE_DEBUG");
+    debug = LLAMA_KV_CACHE_DEBUG ? atoi(LLAMA_KV_CACHE_DEBUG) : 0;
 }
 
 void llama_kv_cache_unified::clear(bool data) {
@@ -556,8 +559,11 @@ int32_t llama_kv_cache_unified::find_slot(const llama_ubatch & ubatch) const {
     }
 
     if (debug > 0) {
+        LLAMA_LOG_CONT("\n");
         LLAMA_LOG_DEBUG("%s: n = %5d, used = %5d, head = %5d, size = %5d, n_swa = %5d\n", __func__, cells.used_max_p1(), cells.get_used(), head, get_size(), n_swa);
 
+        if ((debug == 2 && n_swa > 0) || debug > 2) {
+            std::string ss;
         if ((debug == 2 && n_swa > 0) || debug > 2) {
             std::string ss;
             for (uint32_t i = 0; i < cells.size(); ++i) {
@@ -604,11 +610,14 @@ int32_t llama_kv_cache_unified::find_slot(const llama_ubatch & ubatch) const {
             LLAMA_LOG_DEBUG("\n%s\n", ss.c_str());
         }
 
-        for (int s = 0; s < LLAMA_MAX_SEQ; ++s) {
+        for (int s = 0; s < LLAMA_MAX_PARALLEL_SEQUENCES; ++s) {
             if (cells.seq_pos_min(s) < 0) {
                 continue;
             }
 
+            LLAMA_LOG_DEBUG("%s: min[%d] = %5d, max[%d] = %5d\n", __func__, s, cells.seq_pos_min(s), s, cells.seq_pos_max(s));
+        }
+    }
             LLAMA_LOG_DEBUG("%s: min[%d] = %5d, max[%d] = %5d\n", __func__, s, cells.seq_pos_min(s), s, cells.seq_pos_max(s));
         }
     }
