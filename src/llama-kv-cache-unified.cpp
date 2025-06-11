@@ -687,8 +687,8 @@ int32_t llama_kv_cache_unified::find_slot(const llama_ubatch & ubatch) const {
 void llama_kv_cache_unified::apply_ubatch(uint32_t head_cur, const llama_ubatch & ubatch) {
     // keep track of the max sequence position that we would overwrite with this ubatch
     // for non-SWA cache, this would be always empty
-    llama_seq_id seq_pos_max_rm[LLAMA_MAX_SEQ];
-    for (int s = 0; s < LLAMA_MAX_SEQ; ++s) {
+    llama_seq_id seq_pos_max_rm[LLAMA_MAX_PARALLEL_SEQUENCES];
+    for (int s = 0; s < LLAMA_MAX_PARALLEL_SEQUENCES; ++s) {
         seq_pos_max_rm[s] = -1;
     }
 
@@ -706,15 +706,15 @@ void llama_kv_cache_unified::apply_ubatch(uint32_t head_cur, const llama_ubatch 
 
         cells.pos_set(head_cur + i, ubatch.pos[i]);
 
-        for (int32_t s = 0; s < ubatch.n_seq_id[i]; s++) {
-            cells.seq_add(head_cur + i, ubatch.seq_id[i][s]);
+        for (int32_t j = 0; j < ubatch.n_seq_id[i]; j++) {
+            cells.seq_add(head_cur + i, ubatch.seq_id[i][j]);
         }
     }
 
     // note: we want to preserve the invariant that all positions between [pos_min, pos_max] for each sequence
     //       will be present in the cache. so we have to purge any position which is less than those we would overwrite
     //       ref: https://github.com/ggml-org/llama.cpp/pull/13746#issuecomment-2916057092
-    for (int s = 0; s < LLAMA_MAX_SEQ; ++s) {
+    for (int s = 0; s < LLAMA_MAX_PARALLEL_SEQUENCES; ++s) {
         if (seq_pos_max_rm[s] == -1) {
             continue;
         }
