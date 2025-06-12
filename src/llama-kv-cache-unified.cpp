@@ -310,12 +310,11 @@ llama_pos llama_kv_cache_unified::seq_pos_max(llama_seq_id seq_id) const {
 llama_memory_state_ptr llama_kv_cache_unified::init_batch(
             const llama_batch & batch,
             uint32_t n_ubatch,
-            bool embd_pooled,
-            bool logits_all) {
+            bool embd_pooled) {
     GGML_UNUSED(embd_pooled);
 
     do {
-        auto sbatch = llama_sbatch(batch, hparams.n_embd, true, logits_all);
+        auto sbatch = llama_sbatch(batch, hparams.n_embd, true);
 
         std::vector<llama_ubatch> ubatches;
         while (sbatch.n_tokens > 0) {
