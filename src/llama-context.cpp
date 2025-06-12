@@ -755,6 +755,12 @@ int llama_context::encode(const llama_batch & batch_inp) {
 
     n_queued_tokens += n_tokens;
 
+    const int64_t n_embd = hparams.n_embd;
+
+    llama_sbatch sbatch = llama_sbatch(batch, n_embd, /* simple_split */ true);
+
+    const llama_ubatch ubatch = sbatch.split_simple(n_tokens);
+
     // reserve output buffer
     if (output_reserve(n_tokens) < n_tokens) {
         LLAMA_LOG_ERROR("%s: could not reserve space for batch with %u outputs\n", __func__, n_tokens);
@@ -938,8 +944,8 @@ int llama_context::decode(const llama_batch & batch_inp) {
     llama_memory_context_ptr mctx;
 
     while (true) {
-        mctx = memory->init_batch(*balloc, cparams.n_ubatch, output_all);
-        if (!mctx) {
+        mstate = memory->init_batch(batch, cparams.n_ubatch, embd_pooled);
+        if (!mstate) {
             return -2;
         }
 
@@ -2043,8 +2049,8 @@ void llama_context::opt_epoch_iter(
 
         uint32_t n_outputs_all = n_tokens_all;
 
-        auto mctx = memory->init_batch(*balloc, cparams.n_ubatch, true);
-        if (!mctx || mctx->get_status() != LLAMA_MEMORY_STATUS_SUCCESS) {
+        auto mstate = memory->init_batch(batch, cparams.n_ubatch, embd_pooled);
+        if (!mstate || mstate->get_status() != LLAMA_MEMORY_STATUS_SUCCESS) {
             LLAMA_LOG_ERROR("%s: could not initialize batch\n", __func__);
             break;
         }
