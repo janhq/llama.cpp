@@ -100,17 +100,14 @@ llama_memory_context_ptr llama_kv_cache_unified_iswa::init_batch(llama_batch_all
 
     // first try simple split
     do {
-        balloc.split_reset();
+        auto sbatch = llama_sbatch(batch, hparams.n_embd, true, logits_all);
 
         std::vector<llama_ubatch> ubatches;
-        while (true) {
-            auto ubatch = balloc.split_simple(n_ubatch);
 
-            if (ubatch.n_tokens == 0) {
-                break;
-            }
+        while (sbatch.n_tokens > 0) {
+            auto ubatch = sbatch.split_simple(n_ubatch);
 
-            ubatches.push_back(std::move(ubatch)); // NOLINT
+            ubatches.push_back(ubatch);
         }
 
         auto heads_base = kv_base->prepare(ubatches);
@@ -125,23 +122,20 @@ llama_memory_context_ptr llama_kv_cache_unified_iswa::init_batch(llama_batch_all
 
         assert(heads_base.size() == heads_swa.size());
 
-        return std::make_unique<llama_kv_cache_unified_iswa_context>(
-                this, std::move(heads_base), std::move(heads_swa), std::move(ubatches));
+        return std::make_unique<llama_kv_cache_unified_iswa_state>(
+                this, std::move(sbatch), std::move(heads_base), std::move(heads_swa), std::move(ubatches));
     } while (false);
 
     // if it fails, try equal split
     do {
-        balloc.split_reset();
+        auto sbatch = llama_sbatch(batch, hparams.n_embd, false, logits_all);
 
         std::vector<llama_ubatch> ubatches;
-        while (true) {
-            auto ubatch = balloc.split_equal(n_ubatch);
 
-            if (ubatch.n_tokens == 0) {
-                break;
-            }
+        while (sbatch.n_tokens > 0) {
+            auto ubatch = sbatch.split_equal(n_ubatch);
 
-            ubatches.push_back(std::move(ubatch)); // NOLINT
+            ubatches.push_back(ubatch);
         }
 
         auto heads_base = kv_base->prepare(ubatches);
@@ -156,14 +150,14 @@ llama_memory_context_ptr llama_kv_cache_unified_iswa::init_batch(llama_batch_all
 
         assert(heads_base.size() == heads_swa.size());
 
-        return std::make_unique<llama_kv_cache_unified_iswa_context>(
-                this, std::move(heads_base), std::move(heads_swa), std::move(ubatches));
+        return std::make_unique<llama_kv_cache_unified_iswa_state>(
+                this, std::move(sbatch), std::move(heads_base), std::move(heads_swa), std::move(ubatches));
     } while (false);
 
     // TODO: if we fail again, we should attempt different splitting strategies
     //       but to do that properly, we first have to refactor the batches to be more flexible
 
-    return std::make_unique<llama_kv_cache_unified_iswa_context>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
+    return std::make_unique<llama_kv_cache_unified_iswa_state>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
 }
 
 llama_memory_context_ptr llama_kv_cache_unified_iswa::init_full() {
@@ -200,13 +194,14 @@ llama_kv_cache_unified * llama_kv_cache_unified_iswa::get_swa() const {
 // llama_kv_cache_unified_iswa_context
 //
 
-llama_kv_cache_unified_iswa_context::llama_kv_cache_unified_iswa_context(llama_memory_status status) : status(status) {}
+llama_kv_cache_unified_iswa_state::llama_kv_cache_unified_iswa_state(llama_memory_status status) : status(status) {}
 
-llama_kv_cache_unified_iswa_context::llama_kv_cache_unified_iswa_context(
-        llama_kv_cache_unified_iswa * kv) :
-    ctx_base(kv->get_base()->init_full()),
-    ctx_swa (kv->get_swa ()->init_full()),
-    status(llama_memory_status_combine(ctx_base->get_status(), ctx_swa->get_status())) {
+llama_kv_cache_unified_iswa_state::llama_kv_cache_unified_iswa_state(
+        llama_kv_cache_unified_iswa * kv) : status(LLAMA_MEMORY_STATUS_SUCCESS) {
+    state_base = kv->get_base()->init_full();
+    state_swa  = kv->get_swa ()->init_full();
+
+    status = llama_memory_status_combine(state_base->get_status(), state_swa->get_status());
 }
 
 llama_kv_cache_unified_iswa_context::llama_kv_cache_unified_iswa_context(
