@@ -764,7 +764,7 @@ int llama_context::encode(llama_batch & inp_batch) {
 
     const int64_t n_embd = hparams.n_embd;
 
-    llama_sbatch sbatch = llama_sbatch(batch, n_embd, /* simple_split */ true, /* logits_all */ true);
+    llama_sbatch sbatch = llama_sbatch(batch, n_embd, /* simple_split */ true);
 
     const llama_ubatch ubatch = sbatch.split_simple(n_tokens);
 
@@ -976,7 +976,7 @@ int llama_context::decode(llama_batch & inp_batch) {
     llama_memory_state_ptr mstate;
 
     while (true) {
-        mstate = memory->init_batch(batch, cparams.n_ubatch, embd_pooled, /* logits_all */ n_outputs_all == n_tokens_all);
+        mstate = memory->init_batch(batch, cparams.n_ubatch, embd_pooled);
         if (!mstate) {
             return -2;
         }
@@ -2080,7 +2080,7 @@ void llama_context::opt_epoch_iter(
 
         int64_t n_outputs_all = n_tokens_all;
 
-        auto mstate = memory->init_batch(batch, cparams.n_ubatch, embd_pooled, /* logits_all */ true);
+        auto mstate = memory->init_batch(batch, cparams.n_ubatch, embd_pooled);
         if (!mstate || mstate->get_status() != LLAMA_MEMORY_STATUS_SUCCESS) {
             LLAMA_LOG_ERROR("%s: could not initialize batch\n", __func__);
             break;

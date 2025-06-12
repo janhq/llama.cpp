@@ -105,12 +105,7 @@ void llama_sbatch::add_seq_to_ubatch(llama_ubatch & ubatch, llama_sbatch_seq & s
             ubatch.seq_id = batch->seq_id + seq.offset;
         }
     }
-    if (logits_all) {
-        for (size_t i = 0; i < length; ++i) {
-            ubatch.output[ubatch.n_tokens + i] = 1;
-            out_ids.push_back(ids[seq.offset + i]);
-        }
-    } else if (batch->logits) {
+    if (batch->logits) {
         if (ubatch.equal_seqs) {
             for (size_t i = 0; i < length; ++i) {
                 size_t id = ids[seq.offset + i];
@@ -197,11 +192,10 @@ llama_ubatch llama_sbatch::split_seq(size_t n_ubatch) {
     return ubatch;
 }
 
-llama_sbatch::llama_sbatch(const llama_batch & batch, size_t n_embd, bool simple_split, bool logits_all) {
+llama_sbatch::llama_sbatch(const llama_batch & batch, size_t n_embd, bool simple_split) {
     GGML_ASSERT(batch.n_tokens >= 0);
     this->batch = &batch;
     this->n_embd = n_embd;
-    this->logits_all = logits_all;
 
     n_tokens = batch.n_tokens;
     ids.resize(n_tokens);
