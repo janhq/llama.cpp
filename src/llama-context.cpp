@@ -862,6 +862,8 @@ int llama_context::encode(const llama_batch & batch_inp) {
         const auto & batch = balloc->get_batch();
 
         // remember the sequence ids used during the encoding - needed for cross attention later
+        // TODO: the seuqence indexing here is likely not correct in the general case
+        //       probably works only for split_simple
         cross.seq_ids_enc.resize(n_tokens);
         for (uint32_t i = 0; i < n_tokens; i++) {
             cross.seq_ids_enc[i].clear();
