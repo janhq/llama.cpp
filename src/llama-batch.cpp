@@ -306,9 +306,10 @@ llama_batch_allocr::llama_batch_allocr(struct llama_batch in_batch, llama_pos p0
         batch.seq_id = seq_id.data();
     }
     if (!batch.logits) {
-        logits.resize(batch.n_tokens);
-        logits[logits.size() - 1] = true;
-        batch.logits = logits.data();
+        // by default return the output only for the last token
+        output.resize(batch.n_tokens);
+        output[output.size() - 1] = true;
+        batch.logits = output.data();
     }
 }
 
