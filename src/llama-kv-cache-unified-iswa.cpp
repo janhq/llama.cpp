@@ -95,22 +95,19 @@ llama_pos llama_kv_cache_unified_iswa::seq_pos_max(llama_seq_id seq_id) const {
     return kv_swa->seq_pos_max(seq_id);
 }
 
-llama_memory_context_ptr llama_kv_cache_unified_iswa::init_batch(llama_batch_allocr & balloc, uint32_t n_ubatch, bool embd_all) {
-    GGML_UNUSED(embd_all);
+llama_memory_state_ptr llama_kv_cache_unified_iswa::init_batch(const llama_batch & batch, uint32_t n_ubatch, bool embd_pooled, bool logits_all) {
+    GGML_UNUSED(embd_pooled);
 
     // first try simple split
     do {
-        balloc.split_reset();
+        auto sbatch = llama_sbatch(batch, hparams.n_embd, true, logits_all);
 
         std::vector<llama_ubatch> ubatches;
-        while (true) {
-            auto ubatch = balloc.split_simple(n_ubatch);
 
-            if (ubatch.n_tokens == 0) {
-                break;
-            }
+        while (sbatch.n_tokens > 0) {
+            auto ubatch = sbatch.split_simple(n_ubatch);
 
-            ubatches.push_back(std::move(ubatch)); // NOLINT
+            ubatches.push_back(ubatch);
         }
 
         auto heads_base = kv_base->prepare(ubatches);
@@ -125,23 +122,20 @@ llama_memory_context_ptr llama_kv_cache_unified_iswa::init_batch(llama_batch_all
 
         assert(heads_base.size() == heads_swa.size());
 
-        return std::make_unique<llama_kv_cache_unified_iswa_context>(
-                this, std::move(heads_base), std::move(heads_swa), std::move(ubatches));
+        return std::make_unique<llama_kv_cache_unified_iswa_state>(
+                this, std::move(sbatch), std::move(heads_base), std::move(heads_swa), std::move(ubatches));
     } while (false);
 
     // if it fails, try equal split
     do {
-        balloc.split_reset();
+        auto sbatch = llama_sbatch(batch, hparams.n_embd, false, logits_all);
 
         std::vector<llama_ubatch> ubatches;
-        while (true) {
-            auto ubatch = balloc.split_equal(n_ubatch);
 
-            if (ubatch.n_tokens == 0) {
-                break;
-            }
+        while (sbatch.n_tokens > 0) {
+            auto ubatch = sbatch.split_equal(n_ubatch);
 
-            ubatches.push_back(std::move(ubatch)); // NOLINT
+            ubatches.push_back(ubatch);
         }
 
         auto heads_base = kv_base->prepare(ubatches);
@@ -156,22 +150,22 @@ llama_memory_context_ptr llama_kv_cache_unified_iswa::init_batch(llama_batch_all
 
         assert(heads_base.size() == heads_swa.size());
 
-        return std::make_unique<llama_kv_cache_unified_iswa_context>(
-                this, std::move(heads_base), std::move(heads_swa), std::move(ubatches));
+        return std::make_unique<llama_kv_cache_unified_iswa_state>(
+                this, std::move(sbatch), std::move(heads_base), std::move(heads_swa), std::move(ubatches));
     } while (false);
 
     // TODO: if we fail again, we should attempt different splitting strategies
     //       but to do that properly, we first have to refactor the batches to be more flexible
 
-    return std::make_unique<llama_kv_cache_unified_iswa_context>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
+    return std::make_unique<llama_kv_cache_unified_iswa_state>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
 }
 
-llama_memory_context_ptr llama_kv_cache_unified_iswa::init_full() {
-    return std::make_unique<llama_kv_cache_unified_iswa_context>(this);
+llama_memory_state_ptr llama_kv_cache_unified_iswa::init_full() {
+    return std::make_unique<llama_kv_cache_unified_iswa_state>(this);
 }
 
-llama_memory_context_ptr llama_kv_cache_unified_iswa::init_update(llama_context * lctx, bool optimize) {
-    return std::make_unique<llama_kv_cache_unified_iswa_context>(this, lctx, optimize);
+llama_memory_state_ptr llama_kv_cache_unified_iswa::init_update(llama_context * lctx, bool optimize) {
+    return std::make_unique<llama_kv_cache_unified_iswa_state>(this, lctx, optimize);
 }
 
 bool llama_kv_cache_unified_iswa::get_can_shift() const {
@@ -197,46 +191,52 @@ llama_kv_cache_unified * llama_kv_cache_unified_iswa::get_swa() const {
 }
 
 //
-// llama_kv_cache_unified_iswa_context
+// llama_kv_cache_unified_iswa_state
 //
 
-llama_kv_cache_unified_iswa_context::llama_kv_cache_unified_iswa_context(llama_memory_status status) : status(status) {}
+llama_kv_cache_unified_iswa_state::llama_kv_cache_unified_iswa_state(llama_memory_status status) : status(status) {}
 
-llama_kv_cache_unified_iswa_context::llama_kv_cache_unified_iswa_context(
-        llama_kv_cache_unified_iswa * kv) :
-    ctx_base(kv->get_base()->init_full()),
-    ctx_swa (kv->get_swa ()->init_full()),
-    status(llama_memory_status_combine(ctx_base->get_status(), ctx_swa->get_status())) {
+llama_kv_cache_unified_iswa_state::llama_kv_cache_unified_iswa_state(
+        llama_kv_cache_unified_iswa * kv) : status(LLAMA_MEMORY_STATUS_SUCCESS) {
+    state_base = kv->get_base()->init_full();
+    state_swa  = kv->get_swa ()->init_full();
+
+    status = llama_memory_status_combine(state_base->get_status(), state_swa->get_status());
 }
 
-llama_kv_cache_unified_iswa_context::llama_kv_cache_unified_iswa_context(
+llama_kv_cache_unified_iswa_state::llama_kv_cache_unified_iswa_state(
         llama_kv_cache_unified_iswa * kv,
         llama_context * lctx,
-        bool optimize) :
-    ctx_base(kv->get_base()->init_update(lctx, optimize)),
-    ctx_swa (kv->get_swa ()->init_update(lctx, optimize)),
-    status(llama_memory_status_combine(ctx_base->get_status(), ctx_swa->get_status())) {
+        bool optimize) : status(LLAMA_MEMORY_STATUS_SUCCESS) {
+    state_base = kv->get_base()->init_update(lctx, optimize);
+    state_swa  = kv->get_swa ()->init_update(lctx, optimize);
+
+    status = llama_memory_status_combine(state_base->get_status(), state_swa->get_status());
 }
 
-llama_kv_cache_unified_iswa_context::llama_kv_cache_unified_iswa_context(
+llama_kv_cache_unified_iswa_state::llama_kv_cache_unified_iswa_state(
         llama_kv_cache_unified_iswa * kv,
+        llama_sbatch sbatch,
         std::vector<uint32_t> heads_base,
         std::vector<uint32_t> heads_swa,
-        std::vector<llama_ubatch> ubatches) :
-    ubatches(std::move(ubatches)),
+        std::vector<llama_ubatch> ubatches)
+        : status(LLAMA_MEMORY_STATUS_SUCCESS),
+        sbatch(std::move(sbatch)),
+        ubatches(std::move(ubatches)) {
     // note: here we copy the ubatches. not sure if this is ideal
-    ctx_base(new llama_kv_cache_unified_context(kv->get_base(), std::move(heads_base), this->ubatches)),
-    ctx_swa (new llama_kv_cache_unified_context(kv->get_swa (), std::move(heads_swa),  this->ubatches)),
-    status(llama_memory_status_combine(ctx_base->get_status(), ctx_swa->get_status())) {
+    state_base.reset(new llama_kv_cache_unified_state(kv->get_base(), {}, std::move(heads_base), this->ubatches));
+    state_swa .reset(new llama_kv_cache_unified_state(kv->get_swa (), {}, std::move(heads_swa),  this->ubatches));
+
+    status = llama_memory_status_combine(state_base->get_status(), state_swa->get_status());
 }
 
-llama_kv_cache_unified_iswa_context:: ~llama_kv_cache_unified_iswa_context() = default;
+llama_kv_cache_unified_iswa_state:: ~llama_kv_cache_unified_iswa_state() = default;
 
-bool llama_kv_cache_unified_iswa_context::next() {
+bool llama_kv_cache_unified_iswa_state::next() {
     assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
-    ctx_base->next();
-    ctx_swa ->next();
+    state_base->next();
+    state_swa ->next();
 
     if (++i_next >= ubatches.size()) {
         return false;
@@ -245,35 +245,41 @@ bool llama_kv_cache_unified_iswa_context::next() {
     return true;
 }
 
-bool llama_kv_cache_unified_iswa_context::apply() {
-    assert(!llama_memory_status_is_fail(status));
+bool llama_kv_cache_unified_iswa_state::apply() {
+    assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
     bool res = true;
 
-    res = res & ctx_base->apply();
-    res = res & ctx_swa ->apply();
+    res = res & state_base->apply();
+    res = res & state_swa ->apply();
 
     return res;
 }
 
-llama_memory_status llama_kv_cache_unified_iswa_context::get_status() const {
+std::vector<int64_t> & llama_kv_cache_unified_iswa_state::out_ids() {
+    assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
+
+    return sbatch.out_ids;
+}
+
+llama_memory_status llama_kv_cache_unified_iswa_state::get_status() const {
     return status;
 }
 
-const llama_ubatch & llama_kv_cache_unified_iswa_context::get_ubatch() const {
+const llama_ubatch & llama_kv_cache_unified_iswa_state::get_ubatch() const {
     assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
     return ubatches[i_next];
 }
 
-const llama_kv_cache_unified_context * llama_kv_cache_unified_iswa_context::get_base() const {
+const llama_kv_cache_unified_state * llama_kv_cache_unified_iswa_state::get_base() const {
     assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
-    return static_cast<const llama_kv_cache_unified_context *>(ctx_base.get());
+    return static_cast<const llama_kv_cache_unified_state *>(state_base.get());
 }
 
-const llama_kv_cache_unified_context * llama_kv_cache_unified_iswa_context::get_swa()  const {
+const llama_kv_cache_unified_state * llama_kv_cache_unified_iswa_state::get_swa()  const {
     assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
-    return static_cast<const llama_kv_cache_unified_context *>(ctx_swa.get());
+    return static_cast<const llama_kv_cache_unified_state *>(state_swa.get());
 }
