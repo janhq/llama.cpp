@@ -639,30 +639,37 @@ void llama_batch_allocr::ubatch_print(const llama_ubatch & ubatch, int debug) {
             for (uint32_t i = 0; i < ubatch.n_tokens; ++i) {
                 std::vector<int8_t> seq_id(seq_id_max);
 
-                for (int s = 0; s < ubatch.n_seq_id[i]; ++s) {
-                    seq_id[ubatch.seq_id[i][s]] = 1;
-                }
-
-                std::stringstream ss;
-                for (int s = 0; s < seq_id_max; ++s) {
-                    if (seq_id[s]) {
-                        ss << s%10;
-                    } else {
-                        ss << ".";
-                    }
-                }
-
-                if (ubatch.token) {
-                    LLAMA_LOG_DEBUG("%s:  %4d: id = %6d (%16s), pos = %4d, n_seq_id = %2d, seq_id = [%s], output = %d\n",
-                            __func__, i, ubatch.token[i], vocab->token_to_piece(ubatch.token[i]).c_str(),
-                            ubatch.pos[i], ubatch.n_seq_id[i], ss.str().c_str(), ubatch.output[i]);
-                } else {
-                    LLAMA_LOG_DEBUG("%s:  %4d: [embd], pos = %4d, n_seq_id = %2d, seq_id = [%s], output = %d\n",
-                            __func__, i, ubatch.pos[i], ubatch.n_seq_id[i], ss.str().c_str(), ubatch.output[i]);
-                }
-            }
-            LLAMA_LOG_DEBUG("%s:   ]\n", __func__);
+llama_batch_allocr::llama_batch_allocr(struct llama_batch in_batch, llama_pos p0) {
+    batch = in_batch;
+    GGML_ASSERT(batch.n_tokens > 0);
+    if (!batch.pos) {
+        assert(p0 >= 0);
+        pos.resize(batch.n_tokens);
+        for (int32_t i = 0; i < batch.n_tokens; i++) {
+            pos[i] = p0 + i;
         }
+        batch.pos = pos.data();
+    }
+    if (!batch.n_seq_id) {
+        n_seq_id.resize(batch.n_tokens);
+        for (int32_t i = 0; i < batch.n_tokens; i++) {
+            n_seq_id[i] = seq_id_0.size();
+        }
+        batch.n_seq_id = n_seq_id.data();
+    }
+    if (!batch.seq_id) {
+        seq_id.resize(batch.n_tokens + 1);
+        seq_id[batch.n_tokens] = NULL;
+        for (int32_t i = 0; i < batch.n_tokens; i++) {
+            seq_id[i] = seq_id_0.data();
+        }
+        batch.seq_id = seq_id.data();
+    }
+    if (!batch.logits) {
+        // by default return the output only for the last token
+        output.resize(batch.n_tokens);
+        output[output.size() - 1] = true;
+        batch.logits = output.data();
     }
 }
 

@@ -94,20 +94,11 @@ struct llama_sbatch {
     // used[i] indicates if token i has already been used in a previous ubatch
     std::vector<bool> used;
 
-    // llama_ubatch points to this data:
-    struct ubatch {
-        std::vector<llama_token>    token;
-        std::vector<float>          embd;
-        std::vector<llama_pos>      pos;
-        std::vector<int32_t>        n_seq_id;
-        std::vector<llama_seq_id *> seq_id;
-        std::vector<llama_seq_id>   seq_id_unq;
-        std::vector<int32_t>        seq_idx;
-        std::vector<int8_t>         output;
-    };
-
-    // current splitting state:
-    std::vector<ubatch> ubatches;
+    std::array<llama_seq_id, 1> seq_id_0 = { 0 }; // default sequence id
+    std::vector<llama_pos>      pos;
+    std::vector<int32_t>        n_seq_id;
+    std::vector<llama_seq_id *> seq_id;
+    std::vector<int8_t>         output;
 
     int debug;
 };

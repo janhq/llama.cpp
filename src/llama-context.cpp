@@ -902,23 +902,41 @@ int llama_context::decode(const llama_batch & batch_inp) {
     const auto & hparams = model.hparams;
 
     const int32_t n_vocab = vocab.n_tokens();
-    const int64_t n_embd  = hparams.n_embd;
 
-    // when computing embeddings, all tokens are output
-    const bool output_all = cparams.embeddings;
+    const int64_t n_tokens_all = batch.n_tokens;
+    const int64_t n_embd       = hparams.n_embd;
 
-    if (!balloc->init(batch_inp, vocab, memory.get(), n_embd, output_all)) {
-        LLAMA_LOG_ERROR("%s: failed to initialize batch\n", __func__);
-        return -1;
+    GGML_ASSERT((!batch.token && batch.embd) || (batch.token && !batch.embd)); // NOLINT
+
+    // TODO: move the validation to the llama_batch_allocr
+    if (batch.token) {
+        for (int64_t i = 0; i < n_tokens_all; ++i) {
+            if (batch.token[i] < 0 || (uint32_t) batch.token[i] >= model.vocab.n_tokens()) {
+                LLAMA_LOG_ERROR("%s: invalid token[%" PRId64 "] = %d\n", __func__, i, batch.token[i]);
+                return -1;
+            }
+
+            if (batch.seq_id && (batch.seq_id[i][0] < 0 || batch.seq_id[i][0] >= LLAMA_MAX_PARALLEL_SEQUENCES)) {
+                LLAMA_LOG_ERROR("%s: invalid seq_id[%" PRId64 "] = %d >= %d\n", __func__, i, batch.seq_id[i][0], LLAMA_MAX_PARALLEL_SEQUENCES);
+                return -1;
+            }
+        }
     }
 
-    const uint32_t n_tokens_all  = balloc->get_n_tokens();
-    const uint32_t n_outputs_all = balloc->get_n_outputs();
+    // this indicates we are doing pooled embedding
+    const bool embd_pooled = cparams.embeddings && cparams.pooling_type != LLAMA_POOLING_TYPE_NONE;
 
-    if (output_all) {
+    int64_t n_outputs_all = 0;
+
+    // count outputs
+    for (uint32_t i = 0; i < n_tokens_all; ++i) {
+        n_outputs_all += batch.logits[i] != 0;
+    }
+
+    if (embd_pooled) {
         // require that all tokens are output
         if (n_outputs_all != n_tokens_all) {
-            LLAMA_LOG_ERROR("%s: pooled embedding requires that all tokens are output (n_outputs_all = %d, n_tokens_all = %d)\n",
+            LLAMA_LOG_ERROR("%s: pooled embedding requires that all tokens are output (n_outputs_all = %" PRId64 ", n_tokens_all = %" PRId64 ")\n",
                     __func__, n_outputs_all, n_tokens_all);
             return -1;
         }
@@ -2044,6 +2062,9 @@ void llama_context::opt_epoch_iter(
         const uint32_t n_tokens_all = balloc->get_n_tokens();
 
         n_queued_tokens += n_tokens_all;
+
+        // this indicates we are doing pooled embedding
+        const bool embd_pooled = cparams.embeddings && cparams.pooling_type != LLAMA_POOLING_TYPE_NONE;
 
         embd_seq.clear();
 
