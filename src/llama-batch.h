@@ -21,19 +21,12 @@ struct llama_ubatch {
     uint32_t n_seqs;       // sequence sets in the ubatch
     uint32_t n_seqs_unq;   // unique sequence ids in the ubatch
 
-    // seq_id_unq: unique sequence ids in the ubatch
-    // seq_idx:    indices of the unique sequence ids in the ubatch in [0, n_seqs_unq)
-    //             used for extracting sequence pooled embeddings
-
-    //                          // size               | idx | val
-    llama_token  *  token;      // [n_tokens]         | i   | id, token
-    float        *  embd;       // [n_embd, n_tokens] | i   | embd
-    llama_pos    *  pos;        // [n_tokens]         | i   | pos
-    int32_t      *  n_seq_id;   // [n_tokens]         | i   | -
-    llama_seq_id ** seq_id;     // [n_tokens]         | s   | s0, s1, seq_id
-    llama_seq_id *  seq_id_unq; // [n_seqs_unq]       | s   | seq_id
-    int32_t      *  seq_idx;    // [LLAMA_MAX_SEQ]    | -   | seq_idx
-    int8_t       *  output;     // [n_tokens]         | i   | -
+    llama_token  *  token;    // [n_tokens]
+    float        *  embd;     // [n_embd, n_tokens]
+    llama_pos    *  pos;      // [n_tokens]
+    int32_t      *  n_seq_id; // [n_seqs]
+    llama_seq_id ** seq_id;   // [n_seqs]
+    int8_t       *  output;   // [n_tokens]
 };
 
 struct llama_sbatch_seq {
@@ -91,14 +84,29 @@ struct llama_sbatch {
     llama_sbatch(const llama_batch & batch, size_t n_embd, bool simple_split = false);
 };
 
-    // used[i] indicates if token i has already been used in a previous ubatch
-    std::vector<bool> used;
+// temporary allocate memory for the input batch if needed
+class llama_batch_allocr {
+public:
+    llama_batch_allocr();
+
+    // optionally fulfill the batch returned by llama_batch_get_one
+    bool init(const llama_batch & batch_inp, const llama_vocab & vocab, llama_pos p0);
+
+    const llama_batch & get_batch() const;
+
+    uint32_t get_n_outputs() const;
+
+private:
+    void clear();
+
+    llama_batch batch;
+
+    uint32_t n_outputs;
 
     std::array<llama_seq_id, 1> seq_id_0 = { 0 }; // default sequence id
+
     std::vector<llama_pos>      pos;
     std::vector<int32_t>        n_seq_id;
     std::vector<llama_seq_id *> seq_id;
     std::vector<int8_t>         output;
-
-    int debug;
 };
