@@ -75,6 +75,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_PLM,              "plm"              },
     { LLM_ARCH_BAILINGMOE,       "bailingmoe"       },
     { LLM_ARCH_DOTS1,            "dots1"            },
+    { LLM_ARCH_ARCEE,            "arcee"            },
     { LLM_ARCH_UNKNOWN,          "(unknown)"        },
 };
 
