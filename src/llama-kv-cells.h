@@ -25,6 +25,7 @@ public:
         used.clear();
 
         for (uint32_t s = 0; s < LLAMA_MAX_SEQ; ++s) {
+        for (uint32_t s = 0; s < LLAMA_MAX_SEQ; ++s) {
             seq_pos[s].clear();
         }
     }
@@ -389,7 +390,7 @@ private:
     //
     std::vector<llama_pos> shift;
 
-    using seq_set_t = std::bitset<LLAMA_MAX_SEQ>;
+    using bits_t = std::bitset<LLAMA_MAX_SEQ>;
 
     // the bitset seq[i] tells us which sequences are currently occupying the i-th cell
     std::vector<seq_set_t> seq;
@@ -397,12 +398,7 @@ private:
     // the set seq_pos[s][p] tells us how many times the position p is currently present for sequence s
     // if the position p is not present, seq_pos[s][p] is not set
     // this way seq_pos[s].begin() and seq_pos[s].rbegin() give us the min/max positions currently in the cache
-    //
-    // note that we cannot a use an std::set because in some cases a position can occur more than once for the same seq:
-    //  - during performing a cache reuse via (rm + add)
-    //  - some vision models have input embeddings with repeating positions
-    //
-    std::map<llama_pos, int> seq_pos[LLAMA_MAX_SEQ];
+    std::set<llama_pos> seq_pos[LLAMA_MAX_SEQ];
 
     // helper functions for updating `seq_pos`, once cell at a time:
 
