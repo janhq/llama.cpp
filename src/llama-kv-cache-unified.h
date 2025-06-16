@@ -59,7 +59,7 @@ public:
     llama_memory_context_ptr init_batch(
             llama_batch_allocr & balloc,
             uint32_t n_ubatch,
-            bool embd_pooled) override;
+            bool embd_all) override;
 
     llama_memory_context_ptr init_full() override;
 

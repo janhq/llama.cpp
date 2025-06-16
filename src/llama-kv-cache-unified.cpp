@@ -339,8 +339,8 @@ llama_pos llama_kv_cache_unified::seq_pos_max(llama_seq_id seq_id) const {
 llama_memory_context_ptr llama_kv_cache_unified::init_batch(
             llama_batch_allocr & balloc,
             uint32_t n_ubatch,
-            bool embd_pooled) {
-    GGML_UNUSED(embd_pooled);
+            bool embd_all) {
+    GGML_UNUSED(embd_all);
 
     do {
         auto sbatch = llama_sbatch(batch, hparams.n_embd, true);
