@@ -1194,70 +1194,6 @@ kernel void kernel_neg(
     dst[tpig] = -src0[tpig];
 }
 
-kernel void kernel_reglu(
-        device const char * src0,
-        device const char * src1,
-        device       char * dst,
-        constant ggml_metal_kargs_glu & args,
-        uint tgpig[[threadgroup_position_in_grid]],
-        uint tpitg[[thread_position_in_threadgroup]],
-        uint   ntg[[threads_per_threadgroup]]) {
-    device const float * src0_row = (device const float *) ((device const char *) src0 + tgpig*args.nb01) + args.i00;
-    device const float * src1_row = (device const float *) ((device const char *) src1 + tgpig*args.nb11) + args.i10;
-    device       float * dst_row  = (device       float *) ((device       char *) dst  + tgpig*args.nb1);
-
-    for (int i0 = tpitg; i0 < args.ne0; i0 += ntg) {
-        const float x0 = src0_row[i0];
-        const float x1 = src1_row[i0];
-
-        dst_row[i0] = x0*x1*(x0 > 0.0f);
-    }
-}
-
-kernel void kernel_geglu(
-        device const char * src0,
-        device const char * src1,
-        device       char * dst,
-        constant ggml_metal_kargs_glu & args,
-        uint tgpig[[threadgroup_position_in_grid]],
-        uint tpitg[[thread_position_in_threadgroup]],
-        uint   ntg[[threads_per_threadgroup]]) {
-    device const float * src0_row = (device const float *) ((device const char *) src0 + tgpig*args.nb01) + args.i00;
-    device const float * src1_row = (device const float *) ((device const char *) src1 + tgpig*args.nb11) + args.i10;
-    device       float * dst_row  = (device       float *) ((device       char *) dst  + tgpig*args.nb1);
-
-    for (int i0 = tpitg; i0 < args.ne0; i0 += ntg) {
-        const float x0 = src0_row[i0];
-        const float x1 = src1_row[i0];
-
-        const float gelu = 0.5f*x0*(1.0f + precise::tanh(SQRT_2_OVER_PI*x0*(1.0f + GELU_COEF_A*x0*x0)));
-
-        dst_row[i0] = gelu*x1;
-    }
-}
-
-kernel void kernel_swiglu(
-        device const char * src0,
-        device const char * src1,
-        device       char * dst,
-        constant ggml_metal_kargs_glu & args,
-        uint tgpig[[threadgroup_position_in_grid]],
-        uint tpitg[[thread_position_in_threadgroup]],
-        uint   ntg[[threads_per_threadgroup]]) {
-    device const float * src0_row = (device const float *) ((device const char *) src0 + tgpig*args.nb01) + args.i00;
-    device const float * src1_row = (device const float *) ((device const char *) src1 + tgpig*args.nb11) + args.i10;
-    device       float * dst_row  = (device       float *) ((device       char *) dst  + tgpig*args.nb1);
-
-    for (int i0 = tpitg; i0 < args.ne0; i0 += ntg) {
-        const float x0 = src0_row[i0];
-        const float x1 = src1_row[i0];
-
-        const float silu = x0 / (1.0f + exp(-x0));
-
-        dst_row[i0] = silu*x1;
-    }
-}
-
 template <bool norm>
 kernel void kernel_sum_rows(
         constant ggml_metal_kargs_sum_rows & args,
@@ -1298,14 +1234,7 @@ kernel void kernel_sum_rows(
         shmem_f32[sgitg] = sumf;
     }
 
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    sumf = shmem_f32[tiisg];
-    sumf = simd_sum(sumf);
-
-    if (tpitg.x == 0) {
-        dst_row[0] = norm ? sumf / args.ne00 : sumf;
-    }
+    dst_row[0] = row_sum;
 }
 
 typedef decltype(kernel_sum_rows<false>) kernel_sum_rows_t;
@@ -4807,8 +4736,49 @@ kernel void kernel_cpy_f32_q5_1(
     for (int64_t i00 = tpitg.x*QK5_1; i00 < args.ne00; i00 += ntg.x*QK5_1) {
         device const float * src = (device float *)(src0 + i03*args.nb03 + i02*args.nb02 + i01*args.nb01 + i00*args.nb00);
 
-        quantize_q5_1(src, dst_data[i00/QK5_1]);
+        float max = src[0];
+        float min = src[0];
+
+        for (int j = 1; j < QK5_1; j++) {
+            const float v = src[j];
+            min = v < min ? v : min;
+            max = v > max ? v : max;
+        }
+
+        const float d = (max - min) / 31;
+        const float id = d ? 1.0f/d : 0.0f;
+
+        dst_data[i00/QK5_1].d = d;
+        dst_data[i00/QK5_1].m = min;
+
+        uint32_t qh = 0;
+        for (int j = 0; j < QK5_1/2; ++j) {
+            const float x0 = (src[0       + j] - min)*id;
+            const float x1 = (src[QK5_1/2 + j] - min)*id;
+
+            const uint8_t xi0 = (uint8_t)(x0 + 0.5f);
+            const uint8_t xi1 = (uint8_t)(x1 + 0.5f);
+
+            dst_data[i00/QK5_1].qs[j] = (xi0 & 0xf) | ((xi1 & 0xf) << 4);
+            qh |= ((xi0 & 0x10u) >> 4) << (j + 0);
+            qh |= ((xi1 & 0x10u) >> 4) << (j + QK5_1/2);
+        }
+        thread const uint8_t * qh8 = (thread const uint8_t *)&qh;
+        for (int j = 0; j < 4; ++j) {
+            dst_data[i00/QK5_1].qh[j] = qh8[j];
+        }
     }
+}
+
+static inline int best_index_int8(int n, constant float * val, float x) {
+    if (x <= val[0]) return 0;
+    if (x >= val[n-1]) return n-1;
+    int ml = 0, mu = n-1;
+    while (mu-ml > 1) {
+        int mav = (ml+mu)/2;
+        if (x < val[mav]) mu = mav; else ml = mav;
+    }
+    return x - val[mu-1] < val[mu] - x ? mu-1 : mu;
 }
 
 kernel void kernel_cpy_f32_iq4_nl(
