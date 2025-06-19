@@ -66,6 +66,7 @@ uint32_t llama_hparams::n_embd_v_gqa(uint32_t il) const {
 }
 
 uint32_t llama_hparams::n_embd_r() const {
+uint32_t llama_hparams::n_embd_r() const {
     if (wkv_head_size != 0) {
         // for RWKV models
         return token_shift_count * n_embd;
@@ -88,10 +89,6 @@ uint32_t llama_hparams::n_embd_s() const {
 
 bool llama_hparams::is_recurrent(uint32_t il) const {
     return recurrent_layer_arr[il];
-}
-
-uint32_t llama_hparams::n_pos_per_embd() const {
-    return rope_type == LLAMA_ROPE_TYPE_MROPE ? 4 : 1;
 }
 
 bool llama_hparams::is_swa(uint32_t il) const {

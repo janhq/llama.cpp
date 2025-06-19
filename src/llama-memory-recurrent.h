@@ -11,8 +11,8 @@
 // llama_memory_recurrent
 //
 
-// TODO: extract the cache state used for graph computation into llama_memory_recurrent_context_i
-//       see the implementation of llama_kv_cache_unified_context_i for an example how to do it
+// TODO: extract the cache state used for graph computation into llama_memory_recurrent_state_i
+//       see the implementation of llama_kv_cache_unified_state_i for an example how to do it
 class llama_memory_recurrent : public llama_memory_i {
 public:
 
@@ -125,21 +125,22 @@ private:
     bool state_read_data(llama_io_read_i & io, uint32_t cell_count);
 };
 
-class llama_memory_recurrent_context : public llama_memory_context_i {
+class llama_memory_recurrent_state : public llama_memory_state_i {
 public:
     // used for errors
-    llama_memory_recurrent_context(llama_memory_status status);
+    llama_memory_recurrent_state(llama_memory_status status);
 
-    // used to create a full-cache or update context
-    llama_memory_recurrent_context(
+    // used to create a full-cache state
+    llama_memory_recurrent_state(
             llama_memory_recurrent * mem);
 
-    // used to create a batch processing context from a batch
-    llama_memory_recurrent_context(
+    // used to create a state from a batch
+    llama_memory_recurrent_state(
             llama_memory_recurrent * mem,
+            llama_sbatch sbatch,
             std::vector<llama_ubatch> ubatches);
 
-    virtual ~llama_memory_recurrent_context();
+    virtual ~llama_memory_recurrent_state();
 
     //
     // llama_memory_context_i
@@ -152,7 +153,7 @@ public:
     const llama_ubatch & get_ubatch() const override;
 
     //
-    // llama_memory_recurrent_context specific API
+    // llama_memory_recurrent_state specific API
     //
 
     uint32_t get_n_rs() const;
@@ -169,6 +170,8 @@ private:
     const llama_memory_status status;
 
     llama_memory_recurrent * mem;
+
+    llama_sbatch sbatch;
 
     size_t i_next = 0;
 

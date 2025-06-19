@@ -19,10 +19,10 @@ struct llama_cparams;
 
 struct llama_memory_context_i;
 
-class llama_kv_cache_unified_context;
-class llama_kv_cache_unified_iswa_context;
-class llama_memory_recurrent_context;
-class llama_memory_hybrid_context;
+class llama_kv_cache_unified_state;
+class llama_kv_cache_unified_iswa_state;
+class llama_memory_recurrent_state;
+class llama_memory_hybrid_state;
 
 // certain models (typically multi-modal) can produce different types of graphs
 enum llm_graph_type {
@@ -191,15 +191,16 @@ public:
 };
 
 class llm_graph_input_rs : public llm_graph_input_i {
+class llm_graph_input_rs : public llm_graph_input_i {
 public:
-    llm_graph_input_rs(const llama_memory_recurrent_context * mctx) : mctx(mctx) {}
+    llm_graph_input_rs(const llama_memory_recurrent_state * mem_state) : mem_state(mem_state) {}
     virtual ~llm_graph_input_rs() = default;
 
     void set_input(const llama_ubatch * ubatch) override;
 
     ggml_tensor * s_copy; // I32 [kv_size]
 
-    const llama_kv_cache_recurrent_state * kv_state;
+    const llama_memory_recurrent_state * mem_state;
 };
 
 class llm_graph_input_cross_embd : public llm_graph_input_i {
@@ -307,10 +308,10 @@ public:
     llm_graph_input_mem_hybrid(
             const llama_hparams & hparams,
             const llama_cparams & cparams,
-            const llama_memory_hybrid_context * mctx) :
+            const llama_memory_hybrid_state * mem_state) :
         hparams(hparams),
         cparams(cparams),
-        mctx(mctx) {
+        mem_state(mem_state) {
     }
     virtual ~llm_graph_input_mem_hybrid() = default;
 
@@ -326,18 +327,7 @@ public:
     const llama_hparams & hparams;
     const llama_cparams & cparams;
 
-    const llama_memory_hybrid_context * mctx;
-};
-
-// TODO: remove this when ggml_scale_add is implemented
-class llm_graph_input_one : public llm_graph_input_i {
-public:
-    llm_graph_input_one() {}
-    virtual ~llm_graph_input_one() = default;
-
-    void set_input(const llama_ubatch *) override;
-
-    ggml_tensor * one = nullptr; // F32
+    const llama_memory_hybrid_state * mem_state;
 };
 
 //
@@ -547,7 +537,6 @@ struct llm_graph_context {
     ggml_tensor * build_inp_out_ids() const;
     ggml_tensor * build_inp_mean() const;
     ggml_tensor * build_inp_cls() const;
-    ggml_tensor * build_inp_s_copy() const;
 
     ggml_tensor * build_inp_cross_embd() const;
     ggml_tensor * build_inp_pos_bucket_enc() const;
@@ -647,18 +636,46 @@ struct llm_graph_context {
     // recurrent
     //
 
-    ggml_tensor * build_recurrent_state(
-             ggml_cgraph * gf,
-             ggml_tensor * s,
-             ggml_tensor * state_copy,
-                 int32_t   state_size,
-                 int32_t   n_seqs,
-                    bool   avoid_copies = false) const;
+    // TODO: avoid notion of "kv"
+    // TODO: move this implementation to llama_memory_recurrent.
+    //       this is analogous to llama_kv_cache_unified::cpy_k / cpy_v
+    //       when moving, avoid passing `ggml_cgraph` - only pass `ggml_context`. would likely need to split the
+    //         implementation in 2 separate methods. the goal is to avoid calling `ggml_build_forward_expand` in
+    //         `llama_memory_recurrent`
+    ggml_tensor * build_rs(
+            ggml_cgraph * gf,
+            ggml_tensor * s,
+            ggml_tensor * state_copy,
+                int32_t   state_size,
+                int32_t   n_seqs,
+               uint32_t   n_kv,
+               uint32_t   kv_head,
+               uint32_t   kv_size,
+                int32_t   rs_zero,
+                   bool   avoid_copies = false) const;
+
+    llm_graph_input_rs * build_rs_inp() const;
+
+    ggml_tensor * build_rs(
+            llm_graph_input_rs * inp,
+            ggml_cgraph * gf,
+            ggml_tensor * s,
+                int32_t   state_size,
+                int32_t   n_seqs,
+                   bool   avoid_copies = false) const;
+
+    ggml_tensor * build_rs(
+            llm_graph_input_mem_hybrid * inp,
+            ggml_cgraph * gf,
+            ggml_tensor * s,
+                int32_t   state_size,
+                int32_t   n_seqs,
+                   bool   avoid_copies = false) const;
 
     ggml_tensor * build_rwkv_token_shift_load(
-             ggml_cgraph * gf,
-             ggml_tensor * state_copy,
-      const llama_ubatch & ubatch,
+        llm_graph_input_rs * inp,
+               ggml_cgraph * gf,
+        const llama_ubatch & ubatch,
                      int   il) const;
 
     ggml_tensor * build_rwkv_token_shift_store(
