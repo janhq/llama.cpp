@@ -32,7 +32,7 @@ llama_memory_hybrid::llama_memory_hybrid(
     mem_attn(new llama_kv_cache_unified(
         model,
         filter_attn == nullptr ?
-            [&](int32_t il) { return !hparams.is_recurrent(il); }
+            [&](int32_t il) { return !model.hparams.is_recurrent(il); }
             : filter_attn,
         type_k,
         type_v,
@@ -47,7 +47,7 @@ llama_memory_hybrid::llama_memory_hybrid(
     mem_recr(new llama_memory_recurrent(
         model,
         filter_recr == nullptr ?
-            [&](int32_t il) { return hparams.is_recurrent(il); }
+            [&](int32_t il) { return model.hparams.is_recurrent(il); }
             : filter_recr,
         type_r,
         type_s,
@@ -56,62 +56,50 @@ llama_memory_hybrid::llama_memory_hybrid(
         n_seq_max
     )) {}
 
-llama_memory_context_ptr llama_memory_hybrid::init_batch(llama_batch_allocr & balloc, uint32_t n_ubatch, bool embd_all) {
-    do {
-        balloc.split_reset();
+llama_memory_state_ptr llama_memory_hybrid::init_batch(const llama_batch & batch, uint32_t n_ubatch, bool embd_pooled) {
 
-        // follow the recurrent pattern for creating the ubatch splits
-        std::vector<llama_ubatch> ubatches;
+    // since this includes a recurrent cache, we cannot use split_simple
+    auto sbatch = llama_sbatch(batch, hparams.n_embd, false);
 
-        while (true) {
-            llama_ubatch ubatch;
+    // follow the recurrent pattern for creating the ubatch splits
+    std::vector<llama_ubatch> ubatches;
+    while (sbatch.n_tokens > 0) {
+        llama_ubatch ubatch;
 
-            if (embd_all) {
-                // if all tokens are output, split by sequence
-                ubatch = balloc.split_seq(n_ubatch);
-            } else {
-                ubatch = balloc.split_equal(n_ubatch, false);
-            }
-
-            if (ubatch.n_tokens == 0) {
-                break;
-            }
-
-            ubatches.push_back(std::move(ubatch)); // NOLINT
+        if (embd_pooled) {
+            // Pooled embeddings cannot be split across ubatches (yet)
+            ubatch = sbatch.split_seq(n_ubatch);
+        } else {
+            ubatch = sbatch.split_equal(n_ubatch);
         }
 
-        if (balloc.get_n_used() < balloc.get_n_tokens()) {
-            // failed to find a suitable split
-            break;
-        }
+        ubatches.push_back(ubatch);
+    }
 
-        // prepare the recurrent batches first
-        if (!mem_recr->prepare(ubatches)) {
-            // TODO: will the recurrent cache be in an undefined context at this point?
-            LLAMA_LOG_ERROR("%s: failed to prepare recurrent ubatches\n", __func__);
-            return std::make_unique<llama_memory_hybrid_context>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
-        }
+    // prepare the recurrent batches first
+    if (!mem_recr->prepare(ubatches)) {
+        // TODO: will the recurrent cache be in an undefined state at this point?
+        LLAMA_LOG_ERROR("%s: failed to prepare recurrent ubatches\n", __func__);
+        return std::make_unique<llama_memory_hybrid_state>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
+    }
 
-        // prepare the attention cache
-        auto heads_attn = mem_attn->prepare(ubatches);
-        if (heads_attn.empty()) {
-            LLAMA_LOG_ERROR("%s: failed to prepare attention ubatches\n", __func__);
-            return std::make_unique<llama_memory_hybrid_context>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
-        }
+    // prepare the attention cache
+    auto heads_attn = mem_attn->prepare(ubatches);
+    if (heads_attn.empty()) {
+        LLAMA_LOG_ERROR("%s: failed to prepare attention ubatches\n", __func__);
+        return std::make_unique<llama_memory_hybrid_state>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
+    }
 
-        return std::make_unique<llama_memory_hybrid_context>(
-                this, std::move(heads_attn), std::move(ubatches));
-    } while(false);
-
-    return std::make_unique<llama_memory_hybrid_context>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
+    return std::make_unique<llama_memory_hybrid_state>(
+        this, std::move(sbatch), std::move(heads_attn), std::move(ubatches));
 }
 
-llama_memory_context_ptr llama_memory_hybrid::init_full() {
-    return std::make_unique<llama_memory_hybrid_context>(this);
+llama_memory_state_ptr llama_memory_hybrid::init_full() {
+    return std::make_unique<llama_memory_hybrid_state>(this);
 }
 
-llama_memory_context_ptr llama_memory_hybrid::init_update(llama_context * lctx, bool optimize) {
-    return std::make_unique<llama_memory_hybrid_context>(this, lctx, optimize);
+llama_memory_state_ptr llama_memory_hybrid::init_update(llama_context * lctx, bool optimize) {
+    return std::make_unique<llama_memory_hybrid_state>(this, lctx, optimize);
 }
 
 bool llama_memory_hybrid::get_can_shift() const {
@@ -181,39 +169,41 @@ llama_memory_recurrent * llama_memory_hybrid::get_mem_recr() const {
     return mem_recr.get();
 }
 
-llama_memory_hybrid_context::llama_memory_hybrid_context(llama_memory_status status) : status(status) {}
+llama_memory_hybrid_state::llama_memory_hybrid_state(llama_memory_status status) : status(status) {}
 
-llama_memory_hybrid_context::llama_memory_hybrid_context(llama_memory_hybrid * mem) :
-    ctx_attn(mem->get_mem_attn()->init_full()),
-    ctx_recr(mem->get_mem_recr()->init_full()),
-    status(llama_memory_status_combine(ctx_attn->get_status(), ctx_recr->get_status())) {
+llama_memory_hybrid_state::llama_memory_hybrid_state(llama_memory_hybrid * mem) :
+    state_attn(mem->get_mem_attn()->init_full()),
+    state_recr(mem->get_mem_recr()->init_full()),
+    status(llama_memory_status_combine(state_attn->get_status(), state_recr->get_status())) {
 }
 
-llama_memory_hybrid_context::llama_memory_hybrid_context(
+llama_memory_hybrid_state::llama_memory_hybrid_state(
         llama_memory_hybrid * mem,
               llama_context * lctx,
                        bool   optimize) :
-    ctx_attn(mem->get_mem_attn()->init_update(lctx, optimize)),
-    ctx_recr(mem->get_mem_recr()->init_update(lctx, optimize)),
-    status(llama_memory_status_combine(ctx_attn->get_status(), ctx_recr->get_status())) {
+    state_attn(mem->get_mem_attn()->init_update(lctx, optimize)),
+    state_recr(mem->get_mem_recr()->init_update(lctx, optimize)),
+    status(llama_memory_status_combine(state_attn->get_status(), state_recr->get_status())) {
 }
 
-llama_memory_hybrid_context::llama_memory_hybrid_context(
+llama_memory_hybrid_state::llama_memory_hybrid_state(
               llama_memory_hybrid * mem,
-                  slot_info_vec_t   sinfos_attn,
+                     llama_sbatch   sbatch,
+            std::vector<uint32_t>   heads_attn,
         std::vector<llama_ubatch>   ubatches) :
+    sbatch(std::move(sbatch)),
     ubatches(std::move(ubatches)),
     // note: here we copy the ubatches. not sure if this is ideal
-    ctx_attn(new llama_kv_cache_unified_context(mem->get_mem_attn(), std::move(sinfos_attn), this->ubatches)),
-    ctx_recr(new llama_memory_recurrent_context(mem->get_mem_recr(),                        this->ubatches)),
-    status(llama_memory_status_combine(ctx_attn->get_status(), ctx_recr->get_status())) {
+    state_attn(new llama_kv_cache_unified_state(mem->get_mem_attn(), {}, std::move(heads_attn), this->ubatches)),
+    state_recr(new llama_memory_recurrent_state(mem->get_mem_recr(), {},                        this->ubatches)),
+    status(LLAMA_MEMORY_STATUS_SUCCESS) {
 }
 
-bool llama_memory_hybrid_context::next() {
+bool llama_memory_hybrid_state::next() {
     assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
-    ctx_attn->next();
-    ctx_recr->next();
+    state_attn->next();
+    state_recr->next();
 
     if (++i_next >= ubatches.size()) {
         return false;
@@ -222,30 +212,36 @@ bool llama_memory_hybrid_context::next() {
     return true;
 }
 
-bool llama_memory_hybrid_context::apply() {
-    assert(!llama_memory_status_is_fail(status));
+bool llama_memory_hybrid_state::apply() {
+    assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
     bool res = true;
 
-    res = res & ctx_attn->apply();
-    res = res & ctx_recr->apply();
+    res = res & state_attn->apply();
+    res = res & state_recr->apply();
 
     return res;
 }
 
-llama_memory_status llama_memory_hybrid_context::get_status() const {
+std::vector<int64_t> & llama_memory_hybrid_state::out_ids() {
+    assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
+
+    return sbatch.out_ids;
+}
+
+llama_memory_status llama_memory_hybrid_state::get_status() const {
     return status;
 }
 
-const llama_ubatch & llama_memory_hybrid_context::get_ubatch() const {
+const llama_ubatch & llama_memory_hybrid_state::get_ubatch() const {
     assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
     return ubatches[i_next];
 }
 
-const llama_kv_cache_unified_context * llama_memory_hybrid_context::get_attn() const {
-    return static_cast<const llama_kv_cache_unified_context *>(ctx_attn.get());
+const llama_kv_cache_unified_state * llama_memory_hybrid_state::get_state_attn() const {
+    return static_cast<const llama_kv_cache_unified_state *>(state_attn.get());
 }
 
-const llama_memory_recurrent_context * llama_memory_hybrid_context::get_recr() const {
-    return static_cast<const llama_memory_recurrent_context *>(ctx_recr.get());
+const llama_memory_recurrent_state * llama_memory_hybrid_state::get_state_recr() const {
+    return static_cast<const llama_memory_recurrent_state *>(state_recr.get());
 }
