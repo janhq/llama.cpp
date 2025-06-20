@@ -12,7 +12,6 @@
 #include "ggml-cuda/concat.cuh"
 #include "ggml-cuda/conv-transpose-1d.cuh"
 #include "ggml-cuda/conv2d-dw.cuh"
-#include "ggml-cuda/conv2d-transpose.cuh"
 #include "ggml-cuda/convert.cuh"
 #include "ggml-cuda/count-equal.cuh"
 #include "ggml-cuda/cpy.cuh"
@@ -1842,27 +1841,16 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda_context & ct
     int64_t s12 = nb12 / ts_src1;
     int64_t s13 = nb13 / ts_src1;
 
-    const cuda_t * src0_ptr = nullptr;
-    const cuda_t * src1_ptr = nullptr;
-
-    ggml_cuda_pool_alloc<cuda_t> src0_alloc(ctx.pool());
-    ggml_cuda_pool_alloc<cuda_t> src1_alloc(ctx.pool());
-
-    // Handle src0
-    src0_ptr = (const cuda_t *) src0->data;
-
-    // Handle src1 - convert if necessary
-    if (src1->type == src0_type) {
-        src1_ptr = (const cuda_t *) src1->data;
-    } else {
-        // Convert src1 to target type using traits conversion functions
+    // convert src1 to fp16
+    if (src1->type != GGML_TYPE_F16) {
+        const to_fp16_nc_cuda_t to_fp16_cuda = ggml_get_to_fp16_nc_cuda(src1->type);
         const int64_t ne_src1 = ggml_nelements(src1);
-        src1_alloc.alloc(ne_src1);
+        src1_f16_alloc.alloc(ne_src1);
+        GGML_ASSERT(to_fp16_cuda != nullptr);
 
-        const auto convert_func = traits::get_nc_converter(src1->type);
-        GGML_ASSERT(convert_func != nullptr);
-        convert_func(src1->data, src1_alloc.get(), ne10, ne11, ne12, ne13, s11, s12, s13, main_stream);
-        src1_ptr = src1_alloc.get();
+        to_fp16_cuda(src1_f16, src1_f16_alloc.get(), ne10, ne11, ne12, ne13, s11, s12, s13, main_stream);
+
+        src1_f16 = src1_f16_alloc.get();
         s11 = ne10;
         s12 = ne11*s11;
         s13 = ne12*s12;
@@ -1959,29 +1947,11 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda_context & ct
                 cu_compute_type,
                 CUBLAS_GEMM_DEFAULT_TENSOR_OP));
     }
+#endif
 
-    // Convert output back to F32 if needed
-    if (dst->op_params[0] == GGML_PREC_DEFAULT && cu_data_type != CUDA_R_32F) {
-        const to_fp32_cuda_t to_fp32_cuda = ggml_get_to_fp32_cuda(traits::ggml_type_val);
-        to_fp32_cuda(dst_temp.get(), dst_ddf, ne_dst, main_stream);
-    }
-}
-
-static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
-    GGML_ASSERT(src0->type == GGML_TYPE_F16 || src0->type == GGML_TYPE_BF16 || src0->type == GGML_TYPE_F32);
-
-    switch (src0->type) {
-        case GGML_TYPE_F32:
-            ggml_cuda_mul_mat_batched_cublas_impl<GGML_TYPE_F32>(ctx, src0, src1, dst);
-            break;
-        case GGML_TYPE_BF16:
-            ggml_cuda_mul_mat_batched_cublas_impl<GGML_TYPE_BF16>(ctx, src0, src1, dst);
-            break;
-        case GGML_TYPE_F16:
-            ggml_cuda_mul_mat_batched_cublas_impl<GGML_TYPE_F16>(ctx, src0, src1, dst);
-            break;
-        default:
-            GGML_ABORT("Unsupported type");
+    if (dst->op_params[0] == GGML_PREC_DEFAULT && cu_data_type == CUDA_R_16F) {
+        const to_fp32_cuda_t to_fp32_cuda = ggml_get_to_fp32_cuda(GGML_TYPE_F16);
+        to_fp32_cuda(dst_f16.get(), dst_ddf, ne_dst, main_stream);
     }
 }
 
@@ -2410,9 +2380,6 @@ static bool ggml_cuda_compute_forward(ggml_backend_cuda_context & ctx, struct gg
             break;
         case GGML_OP_CONV_2D_DW:
             ggml_cuda_op_conv2d_dw(ctx, dst);
-            break;
-        case GGML_OP_CONV_TRANSPOSE_2D:
-            ggml_cuda_conv_2d_transpose_p0(ctx, dst);
             break;
         case GGML_OP_CONV_TRANSPOSE_1D:
             ggml_cuda_op_conv_transpose_1d(ctx,dst);
@@ -3340,7 +3307,6 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
         }
         case GGML_OP_IM2COL:
         case GGML_OP_CONV_2D_DW:
-        case GGML_OP_CONV_TRANSPOSE_2D:
         case GGML_OP_POOL_2D:
         case GGML_OP_SUM:
         case GGML_OP_SUM_ROWS:
