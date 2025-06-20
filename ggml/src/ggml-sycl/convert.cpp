@@ -236,9 +236,9 @@ static void dequantize_row_q6_K_sycl_reorder(const void * vx, dst_t * y, const i
 
     dpct::has_capability_or_fail(stream->get_device(), { sycl::aspect::fp16 });
 
-    stream->parallel_for(
-        sycl::nd_range<3>(sycl::range<3>(1, 1, nb) * sycl::range<3>(1, 1, 64), sycl::range<3>(1, 1, 64)),
-        [=](sycl::nd_item<3> item_ct1) { dequantize_block_q6_K_reorder(vx, y, item_ct1, nb); });
+    sycl_parallel_for(stream,
+                      sycl::nd_range<3>(sycl::range<3>(1, 1, nb) * sycl::range<3>(1, 1, 64), sycl::range<3>(1, 1, 64)),
+                      [=](sycl::nd_item<3> item_ct1) { dequantize_block_q6_K_reorder(vx, y, item_ct1, nb); });
 }
 
 template <typename dst_t>
