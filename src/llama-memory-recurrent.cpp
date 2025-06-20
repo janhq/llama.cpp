@@ -362,29 +362,31 @@ llama_pos llama_memory_recurrent::seq_pos_max(llama_seq_id seq_id) const {
     return result;
 }
 
-llama_memory_state_ptr llama_memory_recurrent::init_batch(const llama_batch & batch, uint32_t n_ubatch, bool embd_all) {
-    auto sbatch = llama_sbatch(batch, hparams.n_embd, false);
+llama_memory_state_ptr llama_memory_recurrent::init_batch(llama_batch_allocr & balloc, uint32_t n_ubatch, bool embd_all) {
+    std::vector<llama_ubatch> ubatches;
 
-        std::vector<llama_ubatch> ubatches;
-        while (true) {
-            llama_ubatch ubatch;
+    while (true) {
+        llama_ubatch ubatch;
 
         if (embd_all) {
             // if all tokens are output, split by sequence
-            ubatch = sbatch.split_seq(n_ubatch);
+            ubatch = balloc.split_seq(n_ubatch);
         } else {
-            ubatch = sbatch.split_equal(n_ubatch);
+            ubatch = balloc.split_equal(n_ubatch);
         }
 
-            if (ubatch.n_tokens == 0) {
-                break;
-            }
+        if (ubatch.n_tokens == 0) {
+            break;
+        }
+
+        ubatches.push_back(std::move(ubatch)); // NOLINT
+    }
 
     if (!prepare(ubatches)) {
         return std::make_unique<llama_memory_recurrent_state>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
     }
 
-    return std::make_unique<llama_memory_recurrent_state>(this, std::move(sbatch), std::move(ubatches));
+    return std::make_unique<llama_memory_recurrent_state>(this, std::move(ubatches));
 }
 
 llama_memory_state_ptr llama_memory_recurrent::init_full() {
@@ -423,8 +425,6 @@ bool llama_memory_recurrent::prepare(const std::vector<llama_ubatch> & ubatches)
 }
 
 bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
-    const uint32_t n_seqs = ubatch.n_seqs;
-
     const uint32_t n_seq_tokens = ubatch.n_seq_tokens;
     const uint32_t n_seqs       = ubatch.n_seqs;
 
@@ -509,7 +509,8 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
 
     // find usable cell range
     for (uint32_t s = 0; s < n_seqs; ++s) {
-        const llama_seq_id seq_id = ubatch.seq_id[s][0];
+        const uint32_t i = s*n_seq_tokens;
+        const llama_seq_id seq_id = ubatch.seq_id[i][0];
         auto & seq_meta = cells[seq_id];
         bool has_cell = false;
         if (seq_meta.tail >= 0) {
@@ -533,7 +534,7 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
             seq_meta.tail = next_empty_cell;
             // find next empty cell
             if (s + 1 < n_seqs) {
-                for (uint32_t i = 0; i < size; ++i) {
+                for (uint32_t j = 0; j < size; ++j) {
                     next_empty_cell += 1;
                     if (next_empty_cell >= size) { next_empty_cell -= size; }
                     auto & cell = cells[next_empty_cell];
@@ -547,8 +548,9 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
 
     // gather and re-order
     for (uint32_t s = 0; s < n_seqs; ++s) {
+        const uint32_t i = s*n_seq_tokens;
         const int32_t dst_id = s + min;
-        const int32_t src_id = cells[ubatch.seq_id[s][0]].tail;
+        const int32_t src_id = cells[ubatch.seq_id[i][0]].tail;
         if (dst_id != src_id) {
             auto & dst_cell = cells[dst_id];
             auto & src_cell = cells[src_id];
@@ -558,8 +560,8 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
             std::swap(dst_cell.seq_id, src_cell.seq_id);
 
             // swap tails
-            for (uint32_t i = 0; i < size; ++i) {
-                int32_t & tail = cells[i].tail;
+            for (uint32_t j = 0; j < size; ++j) {
+                int32_t & tail = cells[j].tail;
                 if (tail == src_id) {
                     tail = dst_id;
                 } else if (tail == dst_id) {
@@ -571,7 +573,8 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
 
     // update the pos of the used seqs
     for (uint32_t s = 0; s < n_seqs; ++s) {
-        const llama_pos last_pos = ubatch.pos[n_seq_tokens * s + n_seq_tokens - 1];
+        const uint32_t i = s*n_seq_tokens;
+        const llama_pos last_pos = ubatch.pos[i + n_seq_tokens - 1];
         const int32_t cell_id = s + min;
         auto & cell = cells[cell_id];
 
@@ -1048,8 +1051,7 @@ llama_memory_recurrent_state::llama_memory_recurrent_state(
 
 llama_memory_recurrent_state::llama_memory_recurrent_state(
         llama_memory_recurrent * mem,
-        llama_sbatch sbatch,
-        std::vector<llama_ubatch> ubatches) : status(LLAMA_MEMORY_STATUS_SUCCESS), mem(mem), sbatch(std::move(sbatch)), ubatches(std::move(ubatches)) {}
+        std::vector<llama_ubatch> ubatches) : status(LLAMA_MEMORY_STATUS_SUCCESS), mem(mem), ubatches(std::move(ubatches)) {}
 
 llama_memory_recurrent_state::~llama_memory_recurrent_state() = default;
 
@@ -1069,12 +1071,6 @@ bool llama_memory_recurrent_state::apply() {
     mem->find_slot(ubatches[i_next]);
 
     return true;
-}
-
-std::vector<int64_t> & llama_memory_recurrent_state::out_ids() {
-    assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
-
-    return sbatch.out_ids;
 }
 
 llama_memory_status llama_memory_recurrent_state::get_status() const {

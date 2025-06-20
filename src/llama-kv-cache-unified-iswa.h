@@ -31,7 +31,7 @@ public:
     // llama_memory_i
     //
 
-    llama_memory_context_ptr init_batch(
+    llama_memory_state_ptr init_batch(
             llama_batch_allocr & balloc,
             uint32_t n_ubatch,
             bool embd_all) override;
