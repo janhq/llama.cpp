@@ -2707,6 +2707,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_EMBEDDING}));
     add_opt(common_arg(
+        {"--cls-separator"}, "STRING",
+        "separator of classification sequences (default \\t) for example \"<#seq#>\"",
+        [](common_params & params, const std::string & value) {
+            params.cls_sep = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_EMBEDDING}));
+    add_opt(common_arg(
         {"--host"}, "HOST",
         string_format("ip address to listen, or bind to an UNIX socket if the address ends with .sock (default: %s)", params.hostname.c_str()),
         [](common_params & params, const std::string & value) {
