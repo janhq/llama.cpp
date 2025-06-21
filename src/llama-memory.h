@@ -28,14 +28,14 @@ enum llama_memory_status {
 };
 
 // helper function for combining the status of two memory contexts
+// helper function for combining the status of two memory contexts
 // useful for implementing hybrid memory types (e.g. iSWA)
 llama_memory_status llama_memory_status_combine(llama_memory_status s0, llama_memory_status s1);
 
-// helper function for checking if a memory status indicates a failure
-bool llama_memory_status_is_fail(llama_memory_status status);
-
 // the interface for managing the memory context during batch processing
 // this interface is implemented per memory type. see:
+//   - llama_kv_cache_unified_context
+//   - llama_kv_cache_unified_iswa_context
 //   - llama_kv_cache_unified_context
 //   - llama_kv_cache_unified_iswa_context
 //   ...
@@ -43,7 +43,11 @@ bool llama_memory_status_is_fail(llama_memory_status status);
 // the only method that should mutate the memory and the memory context is llama_memory_i::apply()
 struct llama_memory_context_i {
     virtual ~llama_memory_context_i() = default;
+// the only method that should mutate the memory and the memory context is llama_memory_i::apply()
+struct llama_memory_context_i {
+    virtual ~llama_memory_context_i() = default;
 
+    // consume the current ubatch from the context and proceed to the next one
     // consume the current ubatch from the context and proceed to the next one
     // return false if we are done
     virtual bool next() = 0;
@@ -67,9 +71,9 @@ struct llama_memory_i {
     virtual ~llama_memory_i() = default;
 
     // split the input batch into a set of ubatches and verify that they can fit into the cache
-    // return a state object containing the ubatches and KV cache state required to process them
-    // check the llama_memory_state_i::get_status() for the result
-    virtual llama_memory_state_ptr init_batch(
+    // return a context object containing the ubatches and memory state required to process them
+    // check the llama_memory_context_i::get_status() for the result
+    virtual llama_memory_context_ptr init_batch(
             llama_batch_allocr & balloc,
             uint32_t n_ubatch,
             bool embd_all) = 0;

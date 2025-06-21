@@ -19,10 +19,10 @@ struct llama_cparams;
 
 struct llama_memory_context_i;
 
-class llama_kv_cache_unified_state;
-class llama_kv_cache_unified_iswa_state;
-class llama_memory_recurrent_state;
-class llama_memory_hybrid_state;
+class llama_kv_cache_unified_context;
+class llama_kv_cache_unified_iswa_context;
+class llama_memory_recurrent_context;
+class llama_memory_hybrid_context;
 
 // certain models (typically multi-modal) can produce different types of graphs
 enum llm_graph_type {
@@ -193,14 +193,14 @@ public:
 class llm_graph_input_rs : public llm_graph_input_i {
 class llm_graph_input_rs : public llm_graph_input_i {
 public:
-    llm_graph_input_rs(const llama_memory_recurrent_state * mem_state) : mem_state(mem_state) {}
+    llm_graph_input_rs(const llama_memory_recurrent_context * mctx) : mctx(mctx) {}
     virtual ~llm_graph_input_rs() = default;
 
     void set_input(const llama_ubatch * ubatch) override;
 
     ggml_tensor * s_copy; // I32 [kv_size]
 
-    const llama_memory_recurrent_state * mem_state;
+    const llama_memory_recurrent_context * mctx;
 };
 
 class llm_graph_input_cross_embd : public llm_graph_input_i {
@@ -308,10 +308,10 @@ public:
     llm_graph_input_mem_hybrid(
             const llama_hparams & hparams,
             const llama_cparams & cparams,
-            const llama_memory_hybrid_state * mem_state) :
+            const llama_memory_hybrid_context * mctx) :
         hparams(hparams),
         cparams(cparams),
-        mem_state(mem_state) {
+        mctx(mctx) {
     }
     virtual ~llm_graph_input_mem_hybrid() = default;
 
@@ -327,7 +327,7 @@ public:
     const llama_hparams & hparams;
     const llama_cparams & cparams;
 
-    const llama_memory_hybrid_state * mem_state;
+    const llama_memory_hybrid_context * mctx;
 };
 
 //

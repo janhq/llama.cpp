@@ -336,7 +336,7 @@ llama_pos llama_kv_cache_unified::seq_pos_max(llama_seq_id seq_id) const {
     return cells.seq_pos_max(seq_id);
 }
 
-llama_memory_state_ptr llama_kv_cache_unified::init_batch(
+llama_memory_context_ptr llama_kv_cache_unified::init_batch(
             llama_batch_allocr & balloc,
             uint32_t n_ubatch,
             bool embd_all) {
@@ -361,11 +361,11 @@ llama_memory_state_ptr llama_kv_cache_unified::init_batch(
             break;
         }
 
-        return std::make_unique<llama_kv_cache_unified_state>(
+        return std::make_unique<llama_kv_cache_unified_context>(
                 this, std::move(heads), std::move(ubatches));
     } while (false);
 
-    return std::make_unique<llama_kv_cache_unified_state>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
+    return std::make_unique<llama_kv_cache_unified_context>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
 }
 
 llama_memory_context_ptr llama_kv_cache_unified::init_full() {
@@ -1785,7 +1785,7 @@ bool llama_kv_cache_unified_context::next() {
 }
 
 bool llama_kv_cache_unified_context::apply() {
-    assert(!llama_memory_status_is_fail(status));
+    assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
     // no ubatches -> this is a KV cache update
     if (ubatches.empty()) {
@@ -1802,16 +1802,18 @@ bool llama_kv_cache_unified_context::apply() {
     return true;
 }
 
-llama_memory_status llama_kv_cache_unified_state::get_status() const {
+llama_memory_status llama_kv_cache_unified_context::get_status() const {
     return status;
 }
 
+const llama_ubatch & llama_kv_cache_unified_context::get_ubatch() const {
 const llama_ubatch & llama_kv_cache_unified_context::get_ubatch() const {
     assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
     return ubatches[i_next];
 }
 
+uint32_t llama_kv_cache_unified_context::get_n_kv() const {
 uint32_t llama_kv_cache_unified_context::get_n_kv() const {
     return n_kv;
 }

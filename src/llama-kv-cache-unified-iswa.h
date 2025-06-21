@@ -31,7 +31,7 @@ public:
     // llama_memory_i
     //
 
-    llama_memory_state_ptr init_batch(
+    llama_memory_context_ptr init_batch(
             llama_batch_allocr & balloc,
             uint32_t n_ubatch,
             bool embd_all) override;
@@ -121,8 +121,8 @@ private:
 
     std::vector<llama_ubatch> ubatches;
 
-    const llama_memory_state_ptr state_base;
-    const llama_memory_state_ptr state_swa;
+    const llama_memory_context_ptr ctx_base;
+    const llama_memory_context_ptr ctx_swa;
 
     const llama_memory_status status;
 };
