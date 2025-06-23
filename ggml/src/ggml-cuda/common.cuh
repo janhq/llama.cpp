@@ -270,6 +270,10 @@ static bool fp32_mma_hardware_available(const int cc) {
     return GGML_CUDA_CC_IS_CDNA(cc);
 }
 
+static bool bf16_mma_hardware_available(const int cc) {
+    return GGML_CUDA_CC_IS_NVIDIA(cc) && cc >= GGML_CUDA_CC_AMPERE;
+}
+
 // Volta technically had FP16 tensor cores but they work very differently compared to Turing and later.
 static bool new_mma_available(const int cc) {
     return GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_TURING;

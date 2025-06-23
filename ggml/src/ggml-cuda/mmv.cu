@@ -3,6 +3,7 @@
 #include "mmv.cuh"
 
 template <typename T, typename type_acc, int ncols_dst, int block_size>
+template <typename T, typename type_acc, int ncols_dst, int block_size>
 static __global__ void mul_mat_vec(
         const T * __restrict__ x, const float * __restrict__ y, const int32_t * __restrict__ ids, float * __restrict__ dst,
         const int ncols2, const int nchannels_y, const int stride_row, const int stride_col_y2, const int stride_col_dst,
@@ -17,8 +18,23 @@ static __global__ void mul_mat_vec(
     const int sample_y    = sample_dst;
     const int tid         = threadIdx.x;
 
+        const int ncols2, const int nchannels_y, const int stride_row, const int stride_col_y2, const int stride_col_dst,
+        const int channel_ratio, const int stride_channel_x, const int stride_channel_y, const int stride_channel_dst,
+        const int sample_ratio, const int stride_sample_x, const int stride_sample_y, const int stride_sample_dst) {
+    const int row         = blockIdx.x;
+    const int channel_dst = blockIdx.y;
+    const int channel_x   = ids ? ids[channel_dst]          : channel_dst / channel_ratio;
+    const int channel_y   = ids ? channel_dst % nchannels_y : channel_dst;
+    const int sample_dst  = blockIdx.z;
+    const int sample_x    = sample_dst / sample_ratio;
+    const int sample_y    = sample_dst;
+    const int tid         = threadIdx.x;
+
     constexpr int warp_size   = ggml_cuda_get_physical_warp_size();
 
+    x   += int64_t(sample_x)  *stride_sample_x   + channel_x  *stride_channel_x   + row*stride_row;
+    y   += int64_t(sample_y)  *stride_sample_y   + channel_y  *stride_channel_y;
+    dst += int64_t(sample_dst)*stride_sample_dst + channel_dst*stride_channel_dst;
     x   += int64_t(sample_x)  *stride_sample_x   + channel_x  *stride_channel_x   + row*stride_row;
     y   += int64_t(sample_y)  *stride_sample_y   + channel_y  *stride_channel_y;
     dst += int64_t(sample_dst)*stride_sample_dst + channel_dst*stride_channel_dst;
@@ -456,11 +472,6 @@ bool ggml_cuda_should_use_mmv(enum ggml_type type, int cc, const int64_t * src0_
                     return ne11 <= 4;
                 }
                 return ne11 <= 3;
-            } else if (GGML_CUDA_CC_IS_AMD(cc)) {
-                if (fp32_mma_hardware_available(cc)) {
-                    return ne11 <= 3;
-                }
-                return ne11 <= 8;
             }
             return ne11 <= 8;
         case GGML_TYPE_F16:
@@ -473,14 +484,6 @@ bool ggml_cuda_should_use_mmv(enum ggml_type type, int cc, const int64_t * src0_
                     return src0_small && ne11 <= 3;
                 }
                 return ne11 <= 8;
-            } else if (GGML_CUDA_CC_IS_AMD(cc)) {
-                if (fp16_mma_hardware_available(cc)) {
-                    if (GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_RDNA4(cc)) {
-                        return ne11 <= 5;
-                    }
-                    return ne11 <= 2;
-                }
-                return ne11 <= 8;
             }
             return ne11 <= 8;
         case GGML_TYPE_BF16:
@@ -491,11 +494,6 @@ bool ggml_cuda_should_use_mmv(enum ggml_type type, int cc, const int64_t * src0_
                 }
                 if (bf16_mma_hardware_available(cc)) {
                     return src0_small && ne11 <= 3;
-                }
-                return ne11 <= 8;
-            } else if (GGML_CUDA_CC_IS_AMD(cc)) {
-                if (bf16_mma_hardware_available(cc)) {
-                    return ne11 <= 3;
                 }
                 return ne11 <= 8;
             }
