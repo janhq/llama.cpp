@@ -1019,7 +1019,6 @@ int llama_context::decode(const llama_batch & batch_inp) {
                 pos_min[s] = std::numeric_limits<llama_pos>::max();
             }
 
-            // TODO: fix sequence indexing
             for (uint32_t i = 0; i < ubatch.n_tokens; ++i) {
                 const auto & seq_id = ubatch.seq_id[i][0];
 

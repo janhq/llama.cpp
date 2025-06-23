@@ -398,7 +398,12 @@ private:
     // the set seq_pos[s][p] tells us how many times the position p is currently present for sequence s
     // if the position p is not present, seq_pos[s][p] is not set
     // this way seq_pos[s].begin() and seq_pos[s].rbegin() give us the min/max positions currently in the cache
-    std::set<llama_pos> seq_pos[LLAMA_MAX_SEQ];
+    //
+    // note that we cannot a use an std::set because in some cases a position can occur more than once for the same seq:
+    //  - during performing a cache reuse via (rm + add)
+    //  - some vision models have input embeddings with repeating positions
+    //
+    std::map<llama_pos, int> seq_pos[LLAMA_MAX_SEQ];
 
     // helper functions for updating `seq_pos`, once cell at a time:
 
