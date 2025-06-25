@@ -254,7 +254,7 @@ template <> inline float32x4_t load(const ggml_fp16_t * p) {
     float tmp[4];
 
     for (int i = 0; i < 4; i++) {
-        tmp[i] = GGML_FP16_TO_FP32(p[i]);
+        tmp[i] = GGML_CPU_FP16_TO_FP32(p[i]);
     }
 
     return vec_xl(0, (const float *)(tmp));
