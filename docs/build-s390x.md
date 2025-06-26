@@ -16,7 +16,7 @@ cd llama.cpp
 
 ## CPU Build with BLAS
 
-Building llama.cpp with BLAS support is highly recommended as it has shown to provide performance improvements.
+Building llama.cpp with BLAS support is highly recommended as it has shown to provide performance improvements. Make sure to have OpenBLAS installed in your environment.
 
 ```bash
 cmake -S . -B build             \
@@ -82,11 +82,17 @@ All models need to be converted to Big-Endian. You can achieve this in three cas
 
 1. **Use pre-converted models verified for use on IBM Z & LinuxONE (easiest)**
 
+    ![File Type - gguf](https://img.shields.io/badge/File_Type-gguf-fff)
+
     You can find popular models pre-converted and verified at [s390x Ready Models](https://huggingface.co/collections/taronaeo/s390x-ready-models-672765393af438d0ccb72a08).
 
-    These models and their respective tokenizers are verified to run correctly on IBM Z & LinuxONE.
+    These models have already been converted from `safetensors` to `GGUF Big-Endian` and their respective tokenizers verified to run correctly on IBM z15 and later system.
 
 2. **Convert safetensors model to GGUF Big-Endian directly (recommended)**
+
+    ![File Type - safetensors](https://img.shields.io/badge/File_Type-safetensors-da1e28)
+
+    The model you are trying to convert must be in `safetensors` file format (for example [IBM Granite 3.3 2B](https://huggingface.co/ibm-granite/granite-3.3-2b-instruct)). Make sure you have downloaded the model repository for this case.
 
     ```bash
     python3 convert_hf_to_gguf.py \
@@ -107,6 +113,10 @@ All models need to be converted to Big-Endian. You can achieve this in three cas
     ```
 
 3. **Convert existing GGUF Little-Endian model to Big-Endian**
+
+    ![File Type - gguf](https://img.shields.io/badge/File_Type-gguf-fff)
+
+    The model you are trying to convert must be in `gguf` file format (for example [IBM Granite 3.3 2B](https://huggingface.co/ibm-granite/granite-3.3-2b-instruct-GGUF)). Make sure you have downloaded the model file for this case.
 
     ```bash
     python3 gguf-py/gguf/scripts/gguf_convert_endian.py model-name.f16.gguf BIG
@@ -163,6 +173,22 @@ It is strongly recommended to disable SMT via the kernel boot parameters as it n
 
 IBM VXE/VXE2 SIMD acceleration depends on the BLAS implementation. It is strongly recommended to use BLAS.
 
+## Frequently Asked Questions (FAQ)
+
+1. I'm getting the following error message while trying to load a model: `gguf_init_from_file_impl: failed to load model: this GGUF file version 50331648 is extremely large, is there a mismatch between the host and model endianness?`
+
+    Answer: Please ensure that the model you have downloaded/converted is GGUFv3 Big-Endian. These models are usually denoted with the `-be` suffix, i.e., `granite-3.3-2b-instruct-be.F16.gguf`.
+
+    You may refer to the [Getting GGUF Models](#getting-gguf-models) section to manually convert a `safetensors` model to `GGUF` Big Endian.
+
+2. I'm getting extremely poor performance when running inference on a model
+
+    Answer: Please refer to the [Appendix B: SIMD Support Matrix](#appendix-b-simd-support-matrix) to check if your model quantization is supported by SIMD acceleration.
+
+3. I'm building on IBM z17 and getting the following error messages: `invalid switch -march=z17`
+
+    Answer: Please ensure that your GCC compiler is of minimum GCC 15.1.0 version, and have `binutils` updated to the latest version. If this does not fix the problem, kindly open an issue.
+
 ## Getting Help on IBM Z & LinuxONE
 
 1. **Bugs, Feature Requests**
@@ -172,3 +198,49 @@ IBM VXE/VXE2 SIMD acceleration depends on the BLAS implementation. It is strongl
 2. **Other Questions**
 
     Please reach out directly to [aionz@us.ibm.com](mailto:aionz@us.ibm.com).
+
+## Appendix A: Hardware Support Matrix
+
+|         | Support | Minimum Compiler Version |
+| ------- | ------- | ------------------------ |
+| IBM z15 | ✅      |                          |
+| IBM z16 | ✅      |                          |
+| IBM z17 | ✅      | GCC 15.1.0               |
+
+-   ✅ - supported and verified to run as intended
+-   🚫 - unsupported, we are unlikely able to provide support
+
+## Appendix B: SIMD Support Matrix
+
+|            | VX/VXE/VXE2 | NNPA | zDNN | Spyre |
+| ---------- | ----------- | ---- | ---- | ----- |
+| FP32       | ✅          | ✅   | ❓   | ❓    |
+| FP16       | ✅          | ✅   | ❓   | ❓    |
+| BF16       | 🚫          | 🚫   | ❓   | ❓    |
+| Q4_0       | ✅          | ✅   | ❓   | ❓    |
+| Q4_1       | ✅          | ✅   | ❓   | ❓    |
+| Q5_0       | 🚫          | 🚫   | ❓   | ❓    |
+| Q5_1       | 🚫          | 🚫   | ❓   | ❓    |
+| Q8_0       | ✅          | ✅   | ❓   | ❓    |
+| Q2_K       | 🚫          | 🚫   | ❓   | ❓    |
+| Q3_K       | ✅          | ✅   | ❓   | ❓    |
+| Q4_K       | ✅          | ✅   | ❓   | ❓    |
+| Q5_K       | ✅          | ✅   | ❓   | ❓    |
+| Q6_K       | ✅          | ✅   | ❓   | ❓    |
+| TQ1_0      | 🚫          | 🚫   | ❓   | ❓    |
+| TQ2_0      | 🚫          | 🚫   | ❓   | ❓    |
+| IQ2_XXS    | 🚫          | 🚫   | ❓   | ❓    |
+| IQ2_XS     | 🚫          | 🚫   | ❓   | ❓    |
+| IQ2_S      | 🚫          | 🚫   | ❓   | ❓    |
+| IQ3_XXS    | 🚫          | 🚫   | ❓   | ❓    |
+| IQ3_S      | 🚫          | 🚫   | ❓   | ❓    |
+| IQ1_S      | 🚫          | 🚫   | ❓   | ❓    |
+| IQ1_M      | 🚫          | 🚫   | ❓   | ❓    |
+| IQ4_NL     | ✅          | ✅   | ❓   | ❓    |
+| IQ4_XS     | ✅          | ✅   | ❓   | ❓    |
+| FP32->FP16 | 🚫          | ✅   | ❓   | ❓    |
+| FP16->FP32 | 🚫          | ✅   | ❓   | ❓    |
+
+-   ✅ - acceleration available
+-   🚫 - acceleration unavailable, will still run using scalar implementation
+-   ❓ - acceleration unknown, please contribute if you can test it yourself
