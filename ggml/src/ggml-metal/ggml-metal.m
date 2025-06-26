@@ -2571,6 +2571,7 @@ static bool ggml_metal_encode_node(
                     nth *= 2;
                 }
 
+                nth = MIN(nth, (int) pipeline.maxTotalThreadsPerThreadgroup);
                 nth = MIN(nth, ne00);
 
                 ggml_metal_kargs_sum_rows args = {
