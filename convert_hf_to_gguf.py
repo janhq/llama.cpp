@@ -936,11 +936,7 @@ class TextModel(ModelBase):
         scores: list[float] = [-10000.0] * vocab_size
         toktypes: list[int] = [SentencePieceTokenTypes.UNUSED] * vocab_size
 
-        for token_id in range(tokenizer.vocab_size()):
-            if token_id >= vocab_size:
-                logger.warning(f'ignore tokens from {token_id}: id is out of range, max={vocab_size - 1}')
-                break
-
+        for token_id in range(vocab_size):
             piece = tokenizer.IdToPiece(token_id)
             text = piece.encode("utf-8")
             score = tokenizer.GetScore(token_id)
@@ -954,6 +950,10 @@ class TextModel(ModelBase):
                 toktype = SentencePieceTokenTypes.UNUSED
             elif tokenizer.IsByte(token_id):
                 toktype = SentencePieceTokenTypes.BYTE
+
+            if token_id >= vocab_size:
+                logger.warning(f'ignore tokens from {token_id}: id is out of range, max={vocab_size - 1}')
+                break
 
             tokens[token_id] = text
             scores[token_id] = score

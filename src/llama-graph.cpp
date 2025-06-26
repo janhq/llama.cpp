@@ -354,6 +354,12 @@ void llm_graph_input_mem_hybrid::set_input(const llama_ubatch * ubatch) {
     }
 }
 
+void llm_graph_input_one::set_input(const llama_ubatch *) {
+    GGML_ASSERT(one && ggml_nelements(one) == 1);
+    float f_one = 1.0f;
+    ggml_backend_tensor_set(one, &f_one, 0, sizeof(float));
+}
+
 //
 // llm_graph_context
 //
@@ -1299,9 +1305,12 @@ ggml_tensor * llm_graph_context::build_attn(
 
     const auto * mctx_cur = is_swa ? mctx_iswa->get_swa() : mctx_iswa->get_base();
 
-    // store to KV cache
-    {
+    // optionally store to KV cache
+    if (k_cur) {
         ggml_build_forward_expand(gf, mctx_cur->cpy_k(ctx0, k_cur, il));
+    }
+
+    if (v_cur) {
         ggml_build_forward_expand(gf, mctx_cur->cpy_v(ctx0, v_cur, il));
     }
 
