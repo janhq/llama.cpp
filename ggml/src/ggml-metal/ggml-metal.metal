@@ -138,7 +138,6 @@ void quantize_q4_0(device const float * src, device block_q4_0 & dst) {
 }
 
 void quantize_q4_1(device const float * src, device block_q4_1 & dst) {
-#pragma METAL fp math_mode(safe)
     float min = FLT_MAX;
     float max = -FLT_MAX;
 
@@ -204,7 +203,6 @@ void quantize_q5_0(device const float * src, device block_q5_0 & dst) {
 }
 
 void quantize_q5_1(device const float * src, device block_q5_1 & dst) {
-#pragma METAL fp math_mode(safe)
     float max = src[0];
     float min = src[0];
 
@@ -241,7 +239,6 @@ void quantize_q5_1(device const float * src, device block_q5_1 & dst) {
 }
 
 void quantize_iq4_nl(device const float * src, device block_iq4_nl & dst) {
-#pragma METAL fp math_mode(safe)
     float amax = 0.0f; // absolute max
     float max  = 0.0f;
 
@@ -4736,49 +4733,8 @@ kernel void kernel_cpy_f32_q5_1(
     for (int64_t i00 = tpitg.x*QK5_1; i00 < args.ne00; i00 += ntg.x*QK5_1) {
         device const float * src = (device float *)(src0 + i03*args.nb03 + i02*args.nb02 + i01*args.nb01 + i00*args.nb00);
 
-        float max = src[0];
-        float min = src[0];
-
-        for (int j = 1; j < QK5_1; j++) {
-            const float v = src[j];
-            min = v < min ? v : min;
-            max = v > max ? v : max;
-        }
-
-        const float d = (max - min) / 31;
-        const float id = d ? 1.0f/d : 0.0f;
-
-        dst_data[i00/QK5_1].d = d;
-        dst_data[i00/QK5_1].m = min;
-
-        uint32_t qh = 0;
-        for (int j = 0; j < QK5_1/2; ++j) {
-            const float x0 = (src[0       + j] - min)*id;
-            const float x1 = (src[QK5_1/2 + j] - min)*id;
-
-            const uint8_t xi0 = (uint8_t)(x0 + 0.5f);
-            const uint8_t xi1 = (uint8_t)(x1 + 0.5f);
-
-            dst_data[i00/QK5_1].qs[j] = (xi0 & 0xf) | ((xi1 & 0xf) << 4);
-            qh |= ((xi0 & 0x10u) >> 4) << (j + 0);
-            qh |= ((xi1 & 0x10u) >> 4) << (j + QK5_1/2);
-        }
-        thread const uint8_t * qh8 = (thread const uint8_t *)&qh;
-        for (int j = 0; j < 4; ++j) {
-            dst_data[i00/QK5_1].qh[j] = qh8[j];
-        }
+        quantize_q5_1(src, dst_data[i00/QK5_1]);
     }
-}
-
-static inline int best_index_int8(int n, constant float * val, float x) {
-    if (x <= val[0]) return 0;
-    if (x >= val[n-1]) return n-1;
-    int ml = 0, mu = n-1;
-    while (mu-ml > 1) {
-        int mav = (ml+mu)/2;
-        if (x < val[mav]) mu = mav; else ml = mav;
-    }
-    return x - val[mu-1] < val[mu] - x ? mu-1 : mu;
 }
 
 kernel void kernel_cpy_f32_iq4_nl(
