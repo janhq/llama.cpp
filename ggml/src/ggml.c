@@ -4466,6 +4466,7 @@ struct ggml_tensor * ggml_pool_2d_back(
 // ggml_upscale / ggml_interpolate
 
 static struct ggml_tensor * ggml_interpolate_impl(
+static struct ggml_tensor * ggml_interpolate_impl(
         struct ggml_context * ctx,
         struct ggml_tensor  * a,
         int64_t               ne0,
@@ -4474,7 +4475,7 @@ static struct ggml_tensor * ggml_interpolate_impl(
         int64_t               ne3,
         uint32_t              mode) {
     GGML_ASSERT((mode & 0xFF) < GGML_SCALE_MODE_COUNT);
-
+    
     struct ggml_tensor * result = ggml_new_tensor_4d(ctx, a->type, ne0, ne1, ne2, ne3);
 
     ggml_set_op_params_i32(result, 0, (int32_t)mode);
