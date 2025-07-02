@@ -52,6 +52,8 @@ else ifeq ($(shell uname -s),Linux)
 	@tar -czvf llama.tar.gz build/bin;
 else
 	@tar -czvf llama.tar.gz build/bin;
+endif
+
 ifdef LLAMA_SANITIZE_THREAD
 	MK_CFLAGS   += -fsanitize=thread -g
 	MK_CXXFLAGS += -fsanitize=thread -g
