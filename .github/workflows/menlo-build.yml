@@ -63,7 +63,7 @@ jobs:
           - os: "linux"
             name: "noavx-x64"
             runs-on: "ubuntu-20-04"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF  -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -71,7 +71,7 @@ jobs:
           - os: "linux"
             name: "avx-x64"
             runs-on: "ubuntu-20-04"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF  -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -79,7 +79,7 @@ jobs:
           - os: "linux"
             name: "avx512-x64"
             runs-on: "ubuntu-20-04"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF  -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -87,7 +87,7 @@ jobs:
           - os: "linux"
             name: "noavx-cuda-cu11.7-x64"
             runs-on: "ubuntu-20-04-cuda-11-7"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -95,7 +95,7 @@ jobs:
           - os: "linux"
             name: "avx2-cuda-cu11.7-x64"
             runs-on: "ubuntu-20-04-cuda-11-7"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -103,7 +103,7 @@ jobs:
           - os: "linux"
             name: "avx-cuda-cu11.7-x64"
             runs-on: "ubuntu-20-04-cuda-11-7"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -111,7 +111,7 @@ jobs:
           - os: "linux"
             name: "avx512-cuda-cu11.7-x64"
             runs-on: "ubuntu-20-04-cuda-11-7"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -119,7 +119,7 @@ jobs:
           - os: "linux"
             name: "noavx-cuda-cu12.0-x64"
             runs-on: "ubuntu-20-04-cuda-12-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -127,7 +127,7 @@ jobs:
           - os: "linux"
             name: "avx2-cuda-cu12.0-x64"
             runs-on: "ubuntu-20-04-cuda-12-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -135,7 +135,7 @@ jobs:
           - os: "linux"
             name: "avx-cuda-cu12.0-x64"
             runs-on: "ubuntu-20-04-cuda-12-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -143,15 +143,15 @@ jobs:
           - os: "linux"
             name: "avx512-cuda-cu12.0-x64"
             runs-on: "ubuntu-20-04-cuda-12-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
-            ccache-dir: "/home/runner/.ccache" 
+            ccache-dir: "/home/runner/.ccache"
           - os: "linux"
             name: "vulkan-x64"
             runs-on: "ubuntu-22-04"
-            cmake-flags: "-DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_SERVER=ON -DGGML_VULKAN=ON -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DBUILD_SHARED_LIBS=OFF -DGGML_VULKAN=ON -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: true
             ccache: true
@@ -159,7 +159,7 @@ jobs:
           - os: "macos"
             name: "x64"
             runs-on: "macos-selfhosted-12"
-            cmake-flags: "-DCMAKE_BUILD_RPATH=\"@loader_path\" -DGGML_METAL=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=ON"
+            cmake-flags: "-DCMAKE_BUILD_RPATH=\"@loader_path\" -DGGML_METAL=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=ON"
             run-e2e: false
             vulkan: false
             ccache: false
@@ -167,15 +167,15 @@ jobs:
           - os: "macos"
             name: "arm64"
             runs-on: "macos-selfhosted-12-arm64"
-            cmake-flags: "-DCMAKE_BUILD_RPATH=\"@loader_path\" -DGGML_METAL_EMBED_LIBRARY=ON -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=ON"
+            cmake-flags: "-DCMAKE_BUILD_RPATH=\"@loader_path\" -DGGML_METAL_EMBED_LIBRARY=ON -DBUILD_SHARED_LIBS=ON"
             run-e2e: false
             vulkan: false
             ccache: false
-            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'   
+            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
           - os: "win"
             name: "noavx-cuda-cu12.0-x64"
             runs-on: "windows-cuda-12-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -183,7 +183,7 @@ jobs:
           - os: "win"
             name: "avx2-cuda-cu12.0-x64"
             runs-on: "windows-cuda-12-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -191,7 +191,7 @@ jobs:
           - os: "win"
             name: "avx-cuda-cu12.0-x64"
             runs-on: "windows-cuda-12-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -199,7 +199,7 @@ jobs:
           - os: "win"
             name: "avx512-cuda-cu12.0-x64"
             runs-on: "windows-cuda-12-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON  -DGGML_CUDA_F16=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -207,7 +207,7 @@ jobs:
           - os: "win"
             name: "noavx-cuda-cu11.7-x64"
             runs-on: "windows-cuda-11-7"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -215,7 +215,7 @@ jobs:
           - os: "win"
             name: "avx2-cuda-cu11.7-x64"
             runs-on: "windows-cuda-11-7"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -223,7 +223,7 @@ jobs:
           - os: "win"
             name: "avx-cuda-cu11.7-x64"
             runs-on: "windows-cuda-11-7"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF  -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -231,7 +231,7 @@ jobs:
           - os: "win"
             name: "avx512-cuda-cu11.7-x64"
             runs-on: "windows-cuda-11-7"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF  -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DGGML_CUDA_F16=ON -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -239,7 +239,7 @@ jobs:
           - os: "win"
             name: "avx2-x64"
             runs-on: "windows-cuda-11-7"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DLLAMA_BLAS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF  -DLLAMA_BLAS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja"
             run-e2e: true
             vulkan: false
             ccache: false
@@ -247,7 +247,7 @@ jobs:
           - os: "win"
             name: "noavx-x64"
             runs-on: "windows-cuda-11-7"
-            cmake-flags: "-DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_SERVER=ON -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=OFF  -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja"
             run-e2e: false
             vulkan: false
             ccache: false
@@ -255,7 +255,7 @@ jobs:
           - os: "win"
             name: "avx-x64"
             runs-on: "windows-cuda-12-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DLLAMA_BLAS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX2=OFF -DGGML_NATIVE=OFF  -DLLAMA_BLAS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja"
             run-e2e: true
             vulkan: false
             ccache: false
@@ -263,7 +263,7 @@ jobs:
           - os: "win"
             name: "avx512-x64"
             runs-on: "windows-cuda-12-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DLLAMA_BLAS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_AVX512=ON -DGGML_NATIVE=OFF  -DLLAMA_BLAS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja"
             run-e2e: false
             vulkan: false
             ccache: false
@@ -271,12 +271,11 @@ jobs:
           - os: "win"
             name: "vulkan-x64"
             runs-on: "windows-cuda-11-7"
-            cmake-flags: "-DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_SERVER=ON -DGGML_VULKAN=ON -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja"
+            cmake-flags: "-DBUILD_SHARED_LIBS=OFF  -DGGML_VULKAN=ON -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja"
             vulkan: true
             run-e2e: false
             ccache: false
             ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
-          
 
     steps:
       - name: Clone
@@ -339,7 +338,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install coreutils
-      
+
       - name: Prepare Vulkan SDK Linux
         if: ${{ matrix.vulkan && (matrix.os == 'linux') }}
         run: |
@@ -347,7 +346,7 @@ jobs:
           sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
           sudo apt-get update -y
           sudo apt-get install -y build-essential vulkan-sdk
-    
+
       - name: Prepare Vulkan SDK Windows
         if: ${{ matrix.vulkan && (matrix.os == 'win') }}
         # continue-on-error: true
@@ -363,7 +362,7 @@ jobs:
         shell: bash
         env:
           CODE_SIGN_P12_BASE64: ${{ secrets.CODE_SIGN_P12_BASE64 }}
-  
+
       - uses: apple-actions/import-codesign-certs@v2
         continue-on-error: true
         if: runner.os == 'macOS'
@@ -424,7 +423,7 @@ jobs:
           size=$(stat -f%z ./llama.tar.gz)  # Sử dụng -f%z cho macOS
           echo "checksum=$(cat sha512.txt)" >> $GITHUB_ENV
           echo "size=$size" >> $GITHUB_ENV
-  
+
       - name: Calculate SHA512 Checksum (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -441,8 +440,8 @@ jobs:
           size=$(stat -c%s ./llama.tar.gz)
           echo "checksum=$(cat sha512.txt)" >> $GITHUB_ENV
           echo "size=$size" >> $GITHUB_ENV
-  
-      ## Write for matrix outputs workaround 
+
+      ## Write for matrix outputs workaround
       - uses: cloudposse/github-action-matrix-outputs-write@v1
         id: out
         with:
@@ -491,7 +490,7 @@ jobs:
           security delete-keychain signing_temp.keychain
 
 
-  ## Read matrix outputs 
+  ## Read matrix outputs
   read:
     runs-on: ubuntu-latest
     needs: [build-and-test]
@@ -573,7 +572,7 @@ jobs:
           asset_path: /tmp/cudart-llama-bin-linux-cu12.0-x64.tar.gz
           asset_name: cudart-llama-bin-linux-cu12.0-x64.tar.gz
           asset_content_type: application/gzip
-      
+
       - name: upload cudart-llama-bin-linux-cu11.7-x64.tar.gz to Github Release
         uses: actions/upload-release-asset@v1
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -584,7 +583,7 @@ jobs:
           asset_path: /tmp/cudart-llama-bin-linux-cu11.7-x64.tar.gz
           asset_name: cudart-llama-bin-linux-cu11.7-x64.tar.gz
           asset_content_type: application/gzip
-      
+
       - name: upload cudart-llama-bin-win-cu12.0-x64.tar.gz to Github Release
         uses: actions/upload-release-asset@v1
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -595,7 +594,7 @@ jobs:
           asset_path: /tmp/cudart-llama-bin-win-cu12.0-x64.tar.gz
           asset_name: cudart-llama-bin-win-cu12.0-x64.tar.gz
           asset_content_type: application/gzip
-      
+
       - name: upload cudart-llama-bin-win-cu11.7-x64.tar.gz to Github Release
         uses: actions/upload-release-asset@v1
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
