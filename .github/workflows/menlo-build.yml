@@ -24,6 +24,9 @@ on:
       ]
   pull_request:
     branches: ["dev"]  # Trigger on PRs to dev branch for testing
+    paths: [
+      ".github/workflows/menlo-build.yml",
+    ]
   workflow_dispatch:
 
 env:
