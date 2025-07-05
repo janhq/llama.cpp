@@ -1345,7 +1345,14 @@ kernel void kernel_sum_rows(
         shmem_f32[sgitg] = sumf;
     }
 
-    dst_row[0] = row_sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    sumf = shmem_f32[tiisg];
+    sumf = simd_sum(sumf);
+
+    if (tpitg.x == 0) {
+        dst_row[0] = norm ? sumf / args.ne00 : sumf;
+    }
 }
 
 typedef decltype(kernel_sum_rows<false>) kernel_sum_rows_t;
@@ -1464,18 +1471,14 @@ kernel void kernel_soft_max_4(
         uint3 tpitg[[thread_position_in_threadgroup]],
         uint  sgitg[[simdgroup_index_in_threadgroup]],
         uint  tiisg[[thread_index_in_simdgroup]],
-        uint3  tptg[[threads_per_threadgroup]]) {
-    const int32_t i03 = tgpig.z;
-    const int32_t i02 = tgpig.y;
-    const int32_t i01 = tgpig.x;
+        uint    ntg[[threads_per_threadgroup]]) {
+    const int64_t i03 = (tgpig) / (args.ne02*args.ne01);
+    const int64_t i02 = (tgpig - i03*args.ne02*args.ne01) / args.ne01;
+    const int64_t i01 = (tgpig - i03*args.ne02*args.ne01 - i02*args.ne01);
 
-    const int32_t i13 = i03%args.ne13;
-    const int32_t i12 = i02%args.ne12;
-    const int32_t i11 = i01;
-
-    device const float4 * psrc4 =                (device const float4 *) (src0 + i01*args.nb01 + i02*args.nb02 + i03*args.nb03);
-    device const      T * pmask = src1 != src0 ? (device const T *     ) (src1 + i11*args.nb11 + i12*args.nb12 + i13*args.nb13) : nullptr;
-    device       float4 * pdst4 =                (device       float4 *) (dst  + i01*args.nb1  + i02*args.nb2  + i03*args.nb3);
+    device const float4 * psrc4 = (device const float4 *) src0 + (i03*args.ne02*args.ne01*args.ne00 + i02*args.ne01*args.ne00 + i01*args.ne00)/4;
+    device const      T * pmask = src1 != src0 ? (device const     T *) src1         + i01*args.ne00/4 : nullptr;
+    device       float4 * pdst4 = (device       float4 *) dst  + (i03*args.ne02*args.ne01*args.ne00 + i02*args.ne01*args.ne00 + i01*args.ne00)/4;
 
     float slope = 1.0f;
 
@@ -4145,8 +4148,9 @@ kernel void kernel_flash_attn_ext(
                 ss[j*TS + 0] = S;
                 ss[j*TS + 1] = M;
 
-                ss[j*TS + 2*C + j - 1*SH] = ms0;
-                ss[j*TS + 2*C + j       ] = ms1;
+                    ss[j*TS + 2*C + j        ] = ms0;
+                    ss[j*TS + 2*C + j + sg*SH] = ms1;
+                }
             }
 
             //simdgroup_barrier(mem_flags::mem_threadgroup);
@@ -4175,7 +4179,9 @@ kernel void kernel_flash_attn_ext(
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    threadgroup s_t * sf = (threadgroup s_t *) (shmem_f16 + 2*(nsg-1)*SH + 2*Q*DK);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    threadgroup s_t * sf = (threadgroup s_t *) (shmem_f16 + 2*Q*DK);
 
     // final rescale with 1/S and store to global memory
     for (short j = sgitg; j < Q && iq1 + j < args.ne01; j += nsg) {

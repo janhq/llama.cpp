@@ -64,7 +64,6 @@
 #endif
 
 #if defined(__ARM_NEON) || defined(__AVX512F__) || defined(__VXE__) || defined(__VXE2__)
-#if defined(__ARM_NEON) || defined(__AVX512F__) || defined(__VXE__) || defined(__VXE2__)
 #define VECTOR_REGISTERS 32
 #else
 #define VECTOR_REGISTERS 16

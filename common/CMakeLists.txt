@@ -9,8 +9,6 @@ llama_add_compile_flags()
 
 if(EXISTS "${PROJECT_SOURCE_DIR}/.git")
     set(GIT_DIR "${PROJECT_SOURCE_DIR}/.git")
-if(EXISTS "${PROJECT_SOURCE_DIR}/.git")
-    set(GIT_DIR "${PROJECT_SOURCE_DIR}/.git")
 
     # Is git submodule
     if(NOT IS_DIRECTORY "${GIT_DIR}")

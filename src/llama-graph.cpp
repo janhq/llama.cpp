@@ -191,21 +191,23 @@ void llm_graph_input_cls::set_input(const llama_ubatch * ubatch) {
         GGML_ASSERT(ggml_backend_buffer_is_host(cls->buffer));
 
         uint32_t * data = (uint32_t *) cls->data;
-        memset(cls->data, 0, n_seqs_unq*ggml_element_size(cls));
+        memset(cls->data, 0, n_tokens * ggml_element_size(cls));
 
         std::vector<int> last_pos(n_seqs_unq, -1);
         std::vector<int> last_row(n_seqs_unq, -1);
 
-        for (int i = 0; i < n_tokens; ++i) {
-            const llama_pos pos = ubatch->pos[i];
+        for (int s = 0; s < n_seqs; ++s) {
+            const llama_seq_id seq_id = ubatch->seq_id[s][0];
 
-            for (int s = 0; s < ubatch->n_seq_id[i]; ++s) {
-                const llama_seq_id seq_id  = ubatch->seq_id[i][s];
-                const int32_t      seq_idx = ubatch->seq_idx[seq_id];
+            // TODO: adapt limits to n_seqs when ubatch->equal_seqs is true
+            GGML_ASSERT(seq_id < n_tokens && "seq_id cannot be larger than n_tokens with pooling_type == LAST");
 
-                if (pos >= last_pos[seq_idx]) {
-                    last_pos[seq_idx] = pos;
-                    last_row[seq_idx] = i;
+            for (int i = 0; i < n_seq_tokens; ++i) {
+                const llama_pos pos = ubatch->pos[s*n_seq_tokens + i];
+
+                if (pos >= last_pos[seq_id]) {
+                    last_pos[seq_id] = pos;
+                    last_row[seq_id] = s*n_seq_tokens + i;
                 }
             }
         }
@@ -253,12 +255,9 @@ void llm_graph_input_attn_no_cache::set_input(const llama_ubatch * ubatch) {
 
     float * data = (float *) kq_mask->data;
 
-            for (int h = 0; h < 1; ++h) {
-                for (int s1 = 0; s1 < n_seqs; ++s1) {
-                    const llama_seq_id seq_id = ubatch->seq_id[s1][0];
-
-                    for (int j = 0; j < n_seq_tokens; ++j) {
-                        const int32_t tj = s1*n_seq_tokens + j;
+    for (int h = 0; h < 1; ++h) {
+        for (int i1 = 0; i1 < n_tokens; ++i1) {
+            const llama_seq_id s1 = ubatch->seq_id[i1][0];
 
             for (int i0 = 0; i0 < n_tokens; ++i0) {
                 float f = -INFINITY;
@@ -337,32 +336,6 @@ void llm_graph_input_attn_cross::set_input(const llama_ubatch * ubatch) {
             }
         }
     }
-}
-
-void llm_graph_input_mem_hybrid::set_input(const llama_ubatch * ubatch) {
-    mctx->get_attn()->set_input_k_idxs(self_k_idxs, ubatch);
-    mctx->get_attn()->set_input_v_idxs(self_v_idxs, ubatch);
-
-    mctx->get_attn()->set_input_kq_mask(self_kq_mask, ubatch, cparams.causal_attn);
-
-    const int64_t n_rs = mctx->get_recr()->get_n_rs();
-
-    if (s_copy) {
-        GGML_ASSERT(ggml_backend_buffer_is_host(s_copy->buffer));
-        int32_t * data = (int32_t *) s_copy->data;
-
-        // assuming copy destinations ALWAYS happen ONLY on the cells between head and head+n
-        for (uint32_t i = 0; i < n_rs; ++i) {
-            data[i] = mctx->get_recr()->s_copy(i);
-        }
-    }
-}
-
-void llm_graph_input_one::set_input(const llama_ubatch * ubatch) {
-    GGML_UNUSED(ubatch);
-    GGML_ASSERT(one && ggml_nelements(one) == 1);
-    float f_one = 1.0f;
-    ggml_backend_tensor_set(one, &f_one, 0, sizeof(float));
 }
 
 //

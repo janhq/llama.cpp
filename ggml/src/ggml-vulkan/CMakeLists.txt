@@ -50,7 +50,6 @@ if (Vulkan_FOUND)
                             )
 
     set(VULKAN_SHADER_GEN_CMAKE_ARGS "")
-    set(VULKAN_SHADER_GEN_CMAKE_ARGS "")
 
     # Test all shader extensions
     test_shader_extension_support(
@@ -177,7 +176,6 @@ if (Vulkan_FOUND)
 
     add_custom_command(
         OUTPUT ${_ggml_vk_header}
-               ${_ggml_vk_source}
                ${_ggml_vk_source}
 
         COMMAND ${_ggml_vk_genshaders_cmd}

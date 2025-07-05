@@ -176,20 +176,14 @@ bool llama_batch_allocr::init(
     {
         seq_set_t seq_set_unq;
 
-        if (debug > 1) {
-            int seq_id_max = 0;
-            for (int32_t i = 0; i < batch.n_tokens; ++i) {
-                for (int s = 0; s < batch.n_seq_id[i]; ++s) {
-                    for (int s = 0; s < batch.n_seq_id[i]; ++s) {
-                        seq_id_max = std::max(seq_id_max, batch.seq_id[i][s]);
-                    }
-                }
-            }
-            ++seq_id_max;
+        for (int32_t i = 0; i < batch.n_tokens; ++i) {
+            seq_set_t cur;
+            for (int32_t s = 0; s < batch.n_seq_id[i]; ++s) {
+                const llama_seq_id seq_id = batch.seq_id[i][s];
 
-            LLAMA_LOG_DEBUG("%s:   token     = [\n", __func__);
-            for (int32_t i = 0; i < batch.n_tokens; ++i) {
-                std::vector<int8_t> seq_id(seq_id_max);
+                cur        .set(seq_id);
+                seq_set_unq.set(seq_id);
+            }
 
             seq_set.push_back(cur);
             seq_set_map[cur].push_back(i);
@@ -289,132 +283,31 @@ bool llama_batch_allocr::init(
         }
     }
 
-    if (memory) {
-        for (int32_t s0 = 0; s0 < LLAMA_MAX_SEQ; ++s0) {
-            for (int32_t s1 = 0; s1 < LLAMA_MAX_SEQ; ++s1) {
-                if (seq_cpl[s0][s1]) {
-                    if (memory->seq_pos_min(s0) != memory->seq_pos_min(s1) ||
-                        memory->seq_pos_max(s0) != memory->seq_pos_max(s1)) {
-                        LLAMA_LOG_ERROR("%s: sequence %d is coupled to %d in the input batch, but have divereged\n", __func__, s0, s1);
-                        return false;
-                    }
-                }
+llama_ubatch llama_sbatch::split_equal(size_t n_ubatch) {
+    n_ubatch = n_tokens < n_ubatch ? n_tokens : n_ubatch;
+    llama_ubatch ubatch = reserve_ubatch(n_ubatch, /* has_embd */ batch->embd != nullptr);
+    if (!seq.empty()) {
+        size_t length = 0;
+        size_t n_tokens_in_ubatch = 0;
+        GGML_ASSERT(seq[0].n_seq_id > 0); // should not be mixed with simple splits
+                                          // smallest first, because it's easier to split this way;
+                                          // starting from the end to pop in constant time.
+        for (size_t i = seq.size(); i-- > 0;) {
+            llama_sbatch_seq & s = seq[i];
+            GGML_ASSERT(s.length > 0);
+            if (length == 0) {
+                length = s.length < n_ubatch ? s.length : n_ubatch;
             }
+            add_seq_to_ubatch(ubatch, s, length);
+            n_tokens_in_ubatch += length;
+            // shared prompts can't be mixed with any of their sequences,
+            // so it's safer to compute them in their own ubatch
+            if (s.n_seq_id > 1) { break; }
+            // stop when there isn't enough space for another sequence
+            if (length + n_tokens_in_ubatch > n_ubatch) { break; }
         }
     }
-
-    // disallow partial sequence sub-sets:
-    //
-    // invalid:          x
-    //            i: 0 1 2 ...
-    // ---------------------------------------
-    // seq_id[i][0]: 0 0 1
-    // seq_id[i][1]: 1 1 2
-    // seq_id[i][2]: 2
-    //
-    // disallow decreasing sequence positions:
-    //
-    // invalid:                  x
-    //            i: 0 1 2 3 4 5 6 ...
-    // ---------------------------------------
-    //       pos[i]: 4 5 0 1 6 2 3
-    // seq_id[i][0]: 0 0 1 1 0 1 0
-    //
-    {
-        seq_set_t cur_seq_set[LLAMA_MAX_SEQ];
-        for (int32_t s = 0; s < LLAMA_MAX_SEQ; ++s) {
-            cur_seq_set[s].set();
-        }
-
-        llama_pos cur_seq_pos[LLAMA_MAX_SEQ];
-        for (int32_t s = 0; s < LLAMA_MAX_SEQ; ++s) {
-            cur_seq_pos[s] = -1;
-        }
-
-        for (int32_t i = 0; i < batch.n_tokens; ++i) {
-            const llama_pos pos = batch.pos[i];
-
-            for (int32_t s = 0; s < batch.n_seq_id[i]; ++s) {
-                const llama_seq_id seq_id = batch.seq_id[i][s];
-
-                cur_seq_set[seq_id] &= seq_set[i];
-
-                if (cur_seq_set[seq_id].none()) {
-                    LLAMA_LOG_ERROR("%s: sequence %d belongs to incompatible sequence sets (not allowed)\n", __func__, seq_id);
-                    return false;
-                }
-
-                if (pos < cur_seq_pos[seq_id]) {
-                    LLAMA_LOG_ERROR("%s: sequence %d positions are decreasing (not allowed)\n", __func__, seq_id);
-                    return false;
-                }
-            }
-        }
-    }
-
-    split_reset();
-
-    return true;
-}
-
-llama_ubatch llama_batch_allocr::ubatch_reserve(uint32_t n_seq_tokens, uint32_t n_seqs) {
-    const uint32_t n_tokens = n_seq_tokens*n_seqs;
-
-    clear();
-    split_reset();
-
-    ubatches.emplace_back();
-
-    auto & ubatch = ubatches.back();
-
-    ubatch.token     .resize(n_tokens);
-    ubatch.embd      .clear();
-    ubatch.pos       .resize(n_tokens);
-    ubatch.n_seq_id  .resize(n_tokens);
-    ubatch.seq_id    .resize(n_tokens);
-    ubatch.seq_id_unq.resize(0);
-    ubatch.seq_idx   .resize(LLAMA_MAX_SEQ, -1);
-    ubatch.output    .resize(n_tokens);
-
-    for (uint32_t s = 0; s < n_seqs; ++s) {
-        ubatch.seq_idx[s] = s;
-        ubatch.seq_id_unq.push_back(s);
-    }
-
-    llama_ubatch res {
-        /*.equal_seqs   =*/ true,
-        /*.n_tokens     =*/ n_tokens,
-        /*.n_seq_tokens =*/ n_seq_tokens,
-        /*.n_seqs       =*/ n_seqs,
-        /*.n_seqs_unq   =*/ n_seqs,
-
-        /*.token        =*/ ubatch.token.data(),
-        /*.embd         =*/ nullptr,
-        /*.pos          =*/ ubatch.pos.data(),
-        /*.n_seq_id     =*/ ubatch.n_seq_id.data(),
-        /*.seq_id       =*/ ubatch.seq_id.data(),
-        /*.seq_id_unq   =*/ ubatch.seq_id_unq.data(),
-        /*.seq_idx      =*/ ubatch.seq_idx.data(),
-        /*.output       =*/ ubatch.output.data(),
-    };
-
-    return res;
-}
-
-const llama_batch & llama_batch_allocr::get_batch() const {
-    return batch;
-}
-
-uint32_t llama_batch_allocr::get_n_tokens() const {
-    return batch.n_tokens;
-}
-
-uint32_t llama_batch_allocr::get_n_outputs() const {
-    return n_outputs;
-}
-
-uint32_t llama_batch_allocr::get_n_used() const {
-    return n_used;
+    return ubatch;
 }
 
 std::vector<int32_t> & llama_batch_allocr::get_out_ids() {
@@ -425,11 +318,14 @@ llama_pos llama_batch_allocr::seq_pos_min(llama_seq_id seq_id) const {
     return seq_pos[seq_id].empty() ? -1 : *seq_pos[seq_id].begin();
 }
 
-llama_pos llama_batch_allocr::seq_pos_max(llama_seq_id seq_id) const {
-    return seq_pos[seq_id].empty() ? -1 : *seq_pos[seq_id].rbegin();
-}
+llama_sbatch::llama_sbatch(const llama_batch & batch, size_t n_embd, bool simple_split, bool logits_all) {
+    GGML_ASSERT(batch.n_tokens >= 0);
+    this->batch = &batch;
+    this->n_embd = n_embd;
+    this->logits_all = logits_all;
 
-void llama_batch_allocr::split_reset() {
+    n_tokens = batch.n_tokens;
+    ids.resize(n_tokens);
     out_ids.clear();
 
     n_used = 0;

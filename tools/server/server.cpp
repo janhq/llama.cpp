@@ -108,26 +108,6 @@ static bool server_task_type_need_logits(server_task_type task_type) {
     }
 }
 
-static bool server_task_type_need_embd(server_task_type task_type) {
-    switch (task_type) {
-        case SERVER_TASK_TYPE_EMBEDDING:
-        case SERVER_TASK_TYPE_RERANK:
-            return true;
-        default:
-            return false;
-    }
-}
-
-static bool server_task_type_need_logits(server_task_type task_type) {
-    switch (task_type) {
-        case SERVER_TASK_TYPE_COMPLETION:
-        case SERVER_TASK_TYPE_INFILL:
-            return true;
-        default:
-            return false;
-    }
-}
-
 struct slot_params {
     bool stream        = true;
     bool cache_prompt  = true; // remember the prompt to avoid reprocessing all prompt
@@ -3402,6 +3382,32 @@ struct server_context {
         if (slot_batched) {
             // apply lora, only need to do it once per batch
             common_set_adapter_lora(ctx, slot_batched->lora);
+        }
+
+        const bool do_encode = (params_base.embedding || params_base.reranking);
+
+        // pad the batch so that batch.n_tokens >= n_slots
+        // TODO: temporary workaround for https://github.com/ggml-org/llama.cpp/issues/13689
+        if (do_encode) {
+            const int n_slots = slots.size();
+
+            if (batch.n_tokens < n_slots) {
+                std::set<llama_seq_id> seq_ids;
+                for (int j = 0; j < batch.n_tokens; ++j) {
+                    seq_ids.insert(batch.seq_id[j][0]);
+                }
+
+                // find unused sequence id
+                llama_seq_id seq_id = -1;
+                for (int i = 0; i < n_slots; ++i) {
+                    if (seq_ids.find(i) == seq_ids.end()) {
+                        seq_id = i;
+                    }
+                }
+
+                const int n_add = n_slots - batch.n_tokens;
+
+                SRV_WRN("adding %d dummy tokens to the batch, seq_id = %d\n", n_add, seq_id);
 
             llama_set_embeddings(ctx, slot_batched->need_embd());
         }

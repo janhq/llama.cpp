@@ -119,9 +119,6 @@ struct llama_hparams {
     // for hybrid state space models
     std::array<bool, LLAMA_MAX_LAYERS> recurrent_layer_arr;
 
-    // for hybrid state space models
-    std::array<bool, LLAMA_MAX_LAYERS> recurrent_layer_arr;
-
     bool ssm_dt_b_c_rms = false;
 
     float f_clamp_kqv      = 0.0f;

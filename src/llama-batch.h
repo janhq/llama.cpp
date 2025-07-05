@@ -14,6 +14,8 @@
 // it points to data in `llama_batch_allocr`
 // keep this struct lightweight
 // it points to data in `llama_batch_allocr`
+// keep this struct lightweight
+// it points to data in `llama_batch_allocr`
 struct llama_ubatch {
     bool equal_seqs;
     // TODO: whole_seqs for embeddings?
@@ -42,55 +44,16 @@ struct llama_ubatch {
 class llama_batch_allocr {
 public:
     llama_batch_allocr(uint32_t n_pos_per_embd);
+// a helper for sanitizing, fulfilling and splitting a batch
+class llama_batch_allocr {
+public:
+    llama_batch_allocr(uint32_t n_pos_per_embd);
 
-    // sanitize and auto-gen missing data in the input batch
-    // memory is optional. if provided will be used to check for sequence continuity and to determine the positions
-    bool init(
-            const llama_batch & batch_inp,
-            const llama_vocab & vocab,
-            const llama_memory_i * memory,
-            uint32_t n_embd,
-            bool output_all);
+    llama_seq_id * seq_id;
 
-    const llama_batch & get_batch() const;
-
-    uint32_t get_n_tokens()  const;
-    uint32_t get_n_outputs() const;
-    uint32_t get_n_used()    const;
-
-    // the array of output indices in the order they were encountered during the ubatch splitting
-    std::vector<int32_t> & get_out_ids();
-
-    // min/max positions of each sequence in the current ubatch
-    llama_pos seq_pos_min(llama_seq_id seq_id) const;
-    llama_pos seq_pos_max(llama_seq_id seq_id) const;
-
-    // call once before splitting the batch to reset the internal state
-    void split_reset();
-
-    // simple split, unknown number of sequence sets of unequal lengths
-    llama_ubatch split_simple(uint32_t n_ubatch);
-
-    // make ubatches of equal-length sequences sets
-    // if sequential == true, the tokens in the ubatch will have increasing sequential sequence ids
-    llama_ubatch split_equal(uint32_t n_ubatch, bool sequential);
-
-    // sequence-set-wise split - each ubatch contains a single sequence-set
-    llama_ubatch split_seq(uint32_t n_ubatch);
-
-    // a helper method for creating a well-defined ubatch of tokens
-    // TODO: support embeddings if needed in the future
-    llama_ubatch ubatch_reserve(uint32_t n_seq_tokens, uint32_t n_seqs);
-
-private:
-    void clear();
-
-    // create the next ubatch based on the provided batch indices (idxs) and the number of sequence sets (n_seqs)
-    // return llama_ubatch.n_tokens == 0 if the entire batch was consumed
-    llama_ubatch ubatch_add(const std::vector<int32_t> & idxs, uint32_t n_seqs, bool equal_seqs);
-
-    // for debugging, start with LLAMA_BATCH_DEBUG=2
-    void ubatch_print(const llama_ubatch & ubatch, int debug);
+    size_t offset;
+    size_t length;
+};
 
     llama_batch batch;
 

@@ -3734,8 +3734,6 @@ static void ggml_vk_instance_init() {
     if (devices_env != nullptr) {
         size_t num_available_devices = vk_instance.instance.enumeratePhysicalDevices().size();
 
-        size_t num_available_devices = vk_instance.instance.enumeratePhysicalDevices().size();
-
         std::string devices(devices_env);
         std::replace(devices.begin(), devices.end(), ',', ' ');
 
@@ -4662,7 +4660,6 @@ static void ggml_vk_buffer_copy(vk_buffer& dst, size_t dst_offset, vk_buffer& sr
         std::lock_guard<std::recursive_mutex> guard(src->device->mutex);
         VK_LOG_DEBUG("ggml_vk_buffer_copy(SINGLE_DEVICE, " << size << ")");
         // Copy within the device
-        vk_context subctx = ggml_vk_create_temporary_context(src->device->transfer_queue.cmd_pool);
         vk_context subctx = ggml_vk_create_temporary_context(src->device->transfer_queue.cmd_pool);
         ggml_vk_ctx_begin(src->device, subctx);
         ggml_vk_buffer_copy_async(subctx, dst, dst_offset, src, src_offset, size);

@@ -38,7 +38,6 @@
 #include <unistd.h>
 #include <functional>
 #include <optional>
-#include <optional>
 
 #include "../include/ggml-cann.h"
 #include "../include/ggml.h"

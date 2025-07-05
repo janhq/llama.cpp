@@ -154,7 +154,6 @@ class SpecialVocab:
         else:
             added_tokens = {}
         tokenizer_config = None
-        tokenizer_config = None
         tokenizer_config_file = path / 'tokenizer_config.json'
         if tokenizer_config_file.is_file():
             with open(tokenizer_config_file, encoding = 'utf-8') as f:

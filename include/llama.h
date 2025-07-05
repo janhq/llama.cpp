@@ -258,10 +258,6 @@ extern "C" {
     //               - if embeddings: all tokens are output
     //               - if not:        only the last token is output
     //            )
-    //            (if set to NULL:
-    //               - if embeddings: all tokens are output
-    //               - if not:        only the last token is output
-    //            )
     //
     typedef struct llama_batch {
         int32_t n_tokens;

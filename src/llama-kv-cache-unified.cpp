@@ -156,6 +156,13 @@ llama_kv_cache_unified::llama_kv_cache_unified(
 
     const char * LLAMA_KV_CACHE_DEBUG = getenv("LLAMA_KV_CACHE_DEBUG");
     debug = LLAMA_KV_CACHE_DEBUG ? atoi(LLAMA_KV_CACHE_DEBUG) : 0;
+
+    const char * LLAMA_SET_ROWS = getenv("LLAMA_SET_ROWS");
+    supports_set_rows = LLAMA_SET_ROWS ? atoi(LLAMA_SET_ROWS) : 0;
+
+    if (!supports_set_rows) {
+        LLAMA_LOG_WARN("%s: LLAMA_SET_ROWS=0, using old ggml_cpy() method for backwards compatibility\n", __func__);
+    }
 }
 
 void llama_kv_cache_unified::clear(bool data) {
@@ -569,8 +576,6 @@ llama_kv_cache_unified::slot_info llama_kv_cache_unified::find_slot(const llama_
 
         if ((debug == 2 && n_swa > 0) || debug > 2) {
             std::string ss;
-        if ((debug == 2 && n_swa > 0) || debug > 2) {
-            std::string ss;
             for (uint32_t i = 0; i < cells.size(); ++i) {
                 if (cells.is_empty(i)) {
                     ss += '.';
@@ -620,9 +625,6 @@ llama_kv_cache_unified::slot_info llama_kv_cache_unified::find_slot(const llama_
                 continue;
             }
 
-            LLAMA_LOG_DEBUG("%s: min[%d] = %5d, max[%d] = %5d\n", __func__, s, cells.seq_pos_min(s), s, cells.seq_pos_max(s));
-        }
-    }
             LLAMA_LOG_DEBUG("%s: min[%d] = %5d, max[%d] = %5d\n", __func__, s, cells.seq_pos_min(s), s, cells.seq_pos_max(s));
         }
     }
@@ -722,11 +724,13 @@ void llama_kv_cache_unified::apply_ubatch(const slot_info & sinfo, const llama_u
     assert(ubatch.n_tokens == sinfo.idxs.size());
 
     for (uint32_t i = 0; i < ubatch.n_tokens; ++i) {
-        if (!cells.is_empty(head_cur + i)) {
-            assert(cells.seq_count(head_cur + i) == 1);
+        const auto idx = sinfo.idxs.at(i);
 
-            const llama_seq_id seq_id = cells.seq_get(head_cur + i);
-            const llama_pos    pos    = cells.pos_get(head_cur + i);
+        if (!cells.is_empty(idx)) {
+            assert(cells.seq_count(idx) == 1);
+
+            const llama_seq_id seq_id = cells.seq_get(idx);
+            const llama_pos    pos    = cells.pos_get(idx);
 
             seq_pos_max_rm[seq_id] = std::max(seq_pos_max_rm[seq_id], pos);
 
@@ -943,7 +947,6 @@ void llama_kv_cache_unified::set_input_kq_mask(ggml_tensor * dst, const llama_ub
     GGML_ASSERT(ggml_backend_buffer_is_host(dst->buffer));
     float * data = (float *) dst->data;
 
-    const int64_t n_kv = dst->ne[0];
     const int64_t n_kv = dst->ne[0];
 
     // Use only the previous KV cells of the correct sequence for each token of the ubatch.
@@ -1928,13 +1931,11 @@ llama_memory_status llama_kv_cache_unified_context::get_status() const {
 }
 
 const llama_ubatch & llama_kv_cache_unified_context::get_ubatch() const {
-const llama_ubatch & llama_kv_cache_unified_context::get_ubatch() const {
     assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
     return ubatches[i_cur];
 }
 
-uint32_t llama_kv_cache_unified_context::get_n_kv() const {
 uint32_t llama_kv_cache_unified_context::get_n_kv() const {
     return n_kv;
 }

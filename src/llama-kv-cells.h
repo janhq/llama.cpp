@@ -25,7 +25,6 @@ public:
         used.clear();
 
         for (uint32_t s = 0; s < LLAMA_MAX_SEQ; ++s) {
-        for (uint32_t s = 0; s < LLAMA_MAX_SEQ; ++s) {
             seq_pos[s].clear();
         }
     }

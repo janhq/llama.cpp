@@ -262,8 +262,6 @@ bool llama_kv_cache_unified_iswa_context::apply() {
 
     res = res & ctx_base->apply();
     res = res & ctx_swa ->apply();
-    res = res & ctx_base->apply();
-    res = res & ctx_swa ->apply();
 
     return res;
 }
@@ -273,17 +271,14 @@ llama_memory_status llama_kv_cache_unified_iswa_context::get_status() const {
 }
 
 const llama_ubatch & llama_kv_cache_unified_iswa_context::get_ubatch() const {
-const llama_ubatch & llama_kv_cache_unified_iswa_context::get_ubatch() const {
     assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
     return ubatches[i_next];
 }
 
 const llama_kv_cache_unified_context * llama_kv_cache_unified_iswa_context::get_base() const {
-const llama_kv_cache_unified_context * llama_kv_cache_unified_iswa_context::get_base() const {
     assert(status == LLAMA_MEMORY_STATUS_SUCCESS);
 
-    return static_cast<const llama_kv_cache_unified_context *>(ctx_base.get());
     return static_cast<const llama_kv_cache_unified_context *>(ctx_base.get());
 }
 

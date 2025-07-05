@@ -192,7 +192,6 @@ public:
 };
 
 class llm_graph_input_rs : public llm_graph_input_i {
-class llm_graph_input_rs : public llm_graph_input_i {
 public:
     llm_graph_input_rs(const llama_memory_recurrent_context * mctx) : mctx(mctx) {}
     virtual ~llm_graph_input_rs() = default;

@@ -978,7 +978,6 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "PAD",
     "PAD_REFLECT_1D",
     "ROLL",
-    "ROLL",
     "ARANGE",
     "TIMESTEP_EMBEDDING",
     "ARGSORT",
@@ -4518,7 +4517,6 @@ struct ggml_tensor * ggml_pool_2d_back(
 
 // ggml_upscale / ggml_interpolate
 
-static struct ggml_tensor * ggml_interpolate_impl(
 static struct ggml_tensor * ggml_interpolate_impl(
         struct ggml_context * ctx,
         struct ggml_tensor  * a,
