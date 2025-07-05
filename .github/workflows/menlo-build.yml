@@ -277,6 +277,14 @@ jobs:
             run-e2e: false
             ccache: false
             ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
+          - os: "win"
+            name: "arm64"
+            runs-on: "windows-cuda-11-7"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE='Release' -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -GNinja -A ARM64"
+            run-e2e: false
+            vulkan: false
+            ccache: false
+            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
 
     steps:
       - name: Clone
