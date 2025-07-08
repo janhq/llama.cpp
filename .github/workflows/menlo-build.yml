@@ -57,7 +57,7 @@ jobs:
 
   build-and-test:
     runs-on: ${{ matrix.runs-on }}
-    needs: [create-draft-release]
+    # needs: [create-draft-release]
     timeout-minutes: 90
     strategy:
       fail-fast: false
