@@ -6687,6 +6687,11 @@ class HunYuanMoEModel(TextModel):
             if len(experts) > 0:
                 raise ValueError(f"Unprocessed experts: {experts}")
 
+
+@ModelBase.register("SmolLM3ForCausalLM")
+class SmolLM3Model(LlamaModel):
+    model_arch = gguf.MODEL_ARCH.SMOLLM3
+
 ###### CONVERSION LOGIC ######
 
 
