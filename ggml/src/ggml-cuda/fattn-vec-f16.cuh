@@ -1,6 +1,12 @@
 #include "common.cuh"
 #include "fattn-common.cuh"
 
+// Currenlty llvm with the amdgcn target dose not support unrolling loops
+// that contain a break that can not be resolved at compile time.
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpass-failed"
+#endif // __clang__
 template<int D, int ncols, ggml_type type_K, ggml_type type_V, bool use_logit_softcap> // D == head size
 #ifndef GGML_USE_HIP
 __launch_bounds__(D, 1)
@@ -174,7 +180,10 @@ static __global__ void flash_attn_vec_ext_f16(
     K     += blockIdx.y*D * nb11;
     V     += blockIdx.y*D * nb21;
     maskh += blockIdx.y*D;
-    for (int k_VKQ_0 = blockIdx.y*D; k_VKQ_0 < ne11; k_VKQ_0 += gridDim.y*D) {
+    for (int k_VKQ_0 = blockIdx.y*D; k_VKQ_0 < ne11; k_VKQ_0 += gridDim.y*D,
+             // Increment pointers after each loop:
+             K += gridDim.y*D*nb11, V += gridDim.y*D*nb21, maskh += gridDim.y*D) {
+
         // Calculate KQ tile and keep track of new maximum KQ values:
 
         if (mask) {
@@ -291,10 +300,6 @@ static __global__ void flash_attn_vec_ext_f16(
             }
         }
 
-        K     += gridDim.y*D * nb11;
-        V     += gridDim.y*D * nb21;
-        maskh += gridDim.y*D;
-
         __syncthreads();
     }
 
@@ -342,6 +347,9 @@ static __global__ void flash_attn_vec_ext_f16(
     NO_DEVICE_CODE;
 #endif // defined(FLASH_ATTN_AVAILABLE) && defined(FP16_AVAILABLE)
 }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif // __clang__
 
 template <int D, int cols_per_block, ggml_type type_K, ggml_type type_V, bool use_logit_softcap>
 void ggml_cuda_flash_attn_ext_vec_f16_case_impl(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
