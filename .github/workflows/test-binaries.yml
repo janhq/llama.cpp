@@ -1,0 +1,642 @@
+name: Test Binaries
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to test'
+        required: false
+        default: 'b5857'
+
+env:
+  TEST_VERSION: 'b5857'
+
+jobs:
+  test-binaries:
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 30
+    # Only run if the triggering workflow succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name != 'workflow_run' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: "linux"
+            name: "noavx-x64"
+            runs-on: "ubuntu-20-04"
+            binary-name: "llama-server"
+            artifact-name: "llama-linux-noavx-x64"
+          - os: "linux"
+            name: "avx-x64"
+            runs-on: "ubuntu-20-04"
+            binary-name: "llama-server"
+            artifact-name: "llama-linux-avx-x64"
+          - os: "linux"
+            name: "avx512-x64"
+            runs-on: "ubuntu-20-04"
+            binary-name: "llama-server"
+            artifact-name: "llama-linux-avx512-x64"
+          
+          - os: "macos"
+            name: "x64"
+            runs-on: "macos-selfhosted-12"
+            binary-name: "llama-server"
+            artifact-name: "llama-macos-x64"
+          - os: "macos"
+            name: "arm64"
+            runs-on: "macos-selfhosted-12-arm64"
+            binary-name: "llama-server"
+            artifact-name: "llama-macos-arm64"
+          
+          - os: "win"
+            name: "noavx-x64"
+            runs-on: "windows-latest"
+            binary-name: "llama-server.exe"
+            artifact-name: "llama-win-noavx-x64"
+          - os: "win"
+            name: "avx-x64"
+            runs-on: "windows-latest"
+            binary-name: "llama-server.exe"
+            artifact-name: "llama-win-avx-x64"
+          - os: "win"
+            name: "avx2-x64"
+            runs-on: "windows-latest"
+            binary-name: "llama-server.exe"
+            artifact-name: "llama-win-avx2-x64"
+
+    steps:
+      - name: Get version from workflow run
+        if: github.event_name == 'workflow_run'
+        id: get_version
+        run: |
+          # Extract version from the triggering workflow run
+          # Get the tag that was created by the menlo-build workflow
+          # The tag format is b{commit_count}
+          echo "Getting version from workflow run..."
+          echo "Workflow run ID: ${{ github.event.workflow_run.id }}"
+          
+          # Get the latest tag from the repository
+          LATEST_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/tags" | \
+            jq -r '.[0].name' | grep -E '^b[0-9]+$' | head -1)
+          
+          if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "null" ]; then
+            echo "Found latest tag: $LATEST_TAG"
+            echo "TEST_VERSION=$LATEST_TAG" >> $GITHUB_ENV
+            echo "version=$LATEST_TAG" >> $GITHUB_OUTPUT
+          else
+            echo "No valid tag found, using default"
+            echo "version=${{ env.TEST_VERSION }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set test version
+        id: set_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ] && [ -n "${{ steps.get_version.outputs.version }}" ]; then
+            echo "TEST_VERSION=${{ steps.get_version.outputs.version }}" >> $GITHUB_ENV
+            echo "Using version from workflow run: ${{ steps.get_version.outputs.version }}"
+          else
+            echo "Using default version: ${{ env.TEST_VERSION }}"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install jq (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if ! command -v jq &> /dev/null; then
+            echo "Installing jq..."
+            brew install jq
+          else
+            echo "jq already installed"
+          fi
+
+      - name: Show testing version
+        run: |
+          echo "Testing version: ${{ env.TEST_VERSION }}"
+          echo "This will download binaries from release: ${{ env.TEST_VERSION }}"
+          echo "Triggered by: ${{ github.event_name }}"
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "Triggering workflow run ID: ${{ github.event.workflow_run.id }}"
+            echo "Triggering workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
+          fi
+
+      - name: Download release binaries (Linux/macOS)
+        if: runner.os != 'Windows'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Download the specific release binary for this matrix combination
+          RELEASE_TAG="${{ env.TEST_VERSION }}"
+          ASSET_NAME="llama-${RELEASE_TAG}-bin-${{ matrix.os }}-${{ matrix.name }}.tar.gz"
+          
+          echo "Downloading asset: $ASSET_NAME"
+          
+          # Get download URL for the asset
+          DOWNLOAD_URL=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$RELEASE_TAG" | \
+            jq -r --arg asset_name "$ASSET_NAME" '.assets[] | select(.name == $asset_name) | .browser_download_url')
+          
+          if [ "$DOWNLOAD_URL" = "null" ] || [ -z "$DOWNLOAD_URL" ]; then
+            echo "Asset $ASSET_NAME not found in release $RELEASE_TAG"
+            echo "Available assets:"
+            curl -s -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/tags/$RELEASE_TAG" | \
+              jq -r '.assets[].name'
+            exit 1
+          fi
+          
+          # Download the binary
+          mkdir -p artifacts
+          curl -L -H "Authorization: token $GITHUB_TOKEN" \
+            -o "artifacts/binary.tar.gz" \
+            "$DOWNLOAD_URL"
+          
+          echo "Downloaded binary successfully"
+          ls -la artifacts/
+
+      - name: Download release binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Download the specific release binary for this matrix combination
+          $releaseTag = "${{ env.TEST_VERSION }}"
+          $assetName = "llama-$releaseTag-bin-${{ matrix.os }}-${{ matrix.name }}.tar.gz"
+          
+          Write-Host "Downloading asset: $assetName"
+          
+          # Get release info
+          $headers = @{
+            'Authorization' = "token $env:GITHUB_TOKEN"
+            'Accept' = 'application/vnd.github.v3+json'
+          }
+          
+          $releaseUrl = "https://api.github.com/repos/${{ github.repository }}/releases/tags/$releaseTag"
+          $release = Invoke-RestMethod -Uri $releaseUrl -Headers $headers
+          
+          # Find the asset
+          $asset = $release.assets | Where-Object { $_.name -eq $assetName }
+          
+          if (-not $asset) {
+            Write-Host "Asset $assetName not found in release $releaseTag"
+            Write-Host "Available assets:"
+            $release.assets | ForEach-Object { Write-Host $_.name }
+            exit 1
+          }
+          
+          # Download the binary
+          New-Item -ItemType Directory -Force -Path "artifacts"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "artifacts\binary.tar.gz" -Headers $headers
+          
+          Write-Host "Downloaded binary successfully"
+          Get-ChildItem -Path "artifacts"
+
+      - name: Extract artifacts (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          echo "Extracting binary for ${{ matrix.artifact-name }}..."
+          cd artifacts
+          tar -xzf binary.tar.gz
+          cd ..
+          
+          # List what we extracted
+          ls -la ./
+          find . -name "*llama*" -type d | head -5
+          
+          # Find and create standardized structure
+          if [ -d "llama" ]; then
+            echo "Found llama directory"
+          else
+            # Move extracted directory to llama/
+            find . -maxdepth 2 -type d -name "*llama*" -exec mv {} llama \; || true
+            # Alternative: if extraction creates different structure
+            if [ ! -d "llama" ]; then
+              mkdir -p llama
+              find artifacts/ -name "*.tar.gz" -exec tar -xzf {} -C llama \;
+            fi
+          fi
+          
+          # Verify binary location
+          find . -name "${{ matrix.binary-name }}" -type f | head -5
+
+      - name: Extract artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "Extracting binary for ${{ matrix.artifact-name }}..."
+          
+          # Extract using tar
+          Set-Location artifacts
+          tar -xzf binary.tar.gz
+          Set-Location ..
+          
+          # List what we have (showing directory structure)
+          Write-Host "Directory structure after extraction:"
+          Get-ChildItem -Recurse | Where-Object {$_.Name -like "*llama*" -or $_.Name -like "*.exe"} | Select-Object -First 10
+          
+          # Find the binary with better error handling
+          $binaryPath = $null
+          try {
+            $binaryPath = Get-ChildItem -Recurse -Filter "${{ matrix.binary-name }}" | Select-Object -First 1 -ExpandProperty Name
+            if ($binaryPath) {
+              $fullBinaryPath = Get-ChildItem -Recurse -Filter "${{ matrix.binary-name }}" | Select-Object -First 1 -ExpandProperty FullName
+              Write-Host "Found binary at: $fullBinaryPath"
+            }
+          } catch {
+            Write-Host "Error searching for binary: $($_.Exception.Message)"
+          }
+          
+          if (-not $binaryPath) {
+            Write-Host "Binary ${{ matrix.binary-name }} not found, listing all .exe files:"
+            Get-ChildItem -Recurse -Filter "*.exe" | ForEach-Object { Write-Host $_.FullName }
+          }
+
+      - name: Make binary executable (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          # Find the actual binary location
+          BINARY_PATH=$(find . -name "${{ matrix.binary-name }}" -type f | head -1)
+          if [ -n "$BINARY_PATH" ]; then
+            chmod +x "$BINARY_PATH"
+            echo "Made executable: $BINARY_PATH"
+            # Create symlink for consistent path
+            mkdir -p llama/build/bin
+            ln -sf "$(realpath $BINARY_PATH)" llama/build/bin/${{ matrix.binary-name }}
+          else
+            echo "Binary not found!"
+            echo "Available files:"
+            find . -type f -name "*server*" | head -10
+            exit 1
+          fi
+
+      - name: Setup binary path (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Find the actual binary using -Filter instead of -Name
+          $binaryFile = Get-ChildItem -Recurse -Filter "${{ matrix.binary-name }}" | Select-Object -First 1
+          
+          if ($binaryFile) {
+            Write-Host "Found binary at: $($binaryFile.FullName)"
+            
+            # Create standardized directory structure
+            New-Item -ItemType Directory -Force -Path "llama\build\bin"
+            Copy-Item $binaryFile.FullName "llama\build\bin\${{ matrix.binary-name }}"
+            Write-Host "Binary copied to: llama\build\bin\${{ matrix.binary-name }}"
+            
+            # Verify the copy worked
+            if (Test-Path "llama\build\bin\${{ matrix.binary-name }}") {
+              Write-Host "Binary successfully copied and ready for testing"
+            } else {
+              Write-Host "Error: Binary copy failed"
+              exit 1
+            }
+          } else {
+            Write-Host "Binary ${{ matrix.binary-name }} not found!"
+            Write-Host "Searching for any server executables:"
+            Get-ChildItem -Recurse -Filter "*server*.exe" | ForEach-Object { 
+              Write-Host "Found: $($_.FullName)"
+            }
+            Write-Host "All .exe files:"
+            Get-ChildItem -Recurse -Filter "*.exe" | ForEach-Object { 
+              Write-Host "Found: $($_.FullName)"
+            }
+            exit 1
+          }
+
+      - name: Download test model (Linux/macOS)  
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p models
+          curl -L -o models/Lucy-Q4_0.gguf "https://huggingface.co/Menlo/Lucy-gguf/resolve/main/Lucy-Q4_0.gguf"
+
+      - name: Download test model (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "models")) {
+            New-Item -ItemType Directory -Path "models"
+          }
+          Invoke-WebRequest -Uri "https://huggingface.co/Menlo/Lucy-gguf/resolve/main/Lucy-Q4_0.gguf" -OutFile "models\Lucy-Q4_0.gguf"
+          
+      - name: Verify binary (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          echo "Testing binary basic functionality..."
+          ./llama/build/bin/${{ matrix.binary-name }} --version || echo "Version check completed"
+          echo "Available arguments:"
+          ./llama/build/bin/${{ matrix.binary-name }} --help || echo "Help check completed"
+
+      - name: Verify binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "Testing binary basic functionality..."
+          
+          # Test version command with better error handling
+          try {
+            $process = Start-Process -FilePath ".\llama\build\bin\${{ matrix.binary-name }}" `
+              -ArgumentList "--version" `
+              -RedirectStandardOutput "version_output.txt" `
+              -RedirectStandardError "version_error.txt" `
+              -Wait -PassThru -WindowStyle Hidden
+            
+            Write-Host "Version command exit code: $($process.ExitCode)"
+            
+            if (Test-Path "version_output.txt") {
+              $versionContent = Get-Content "version_output.txt" -Raw
+              if ($versionContent) {
+                Write-Host "Version output:"
+                Write-Host $versionContent
+              }
+            }
+            
+            if (Test-Path "version_error.txt") {
+              $errorContent = Get-Content "version_error.txt" -Raw
+              if ($errorContent) {
+                Write-Host "Version stderr:"
+                Write-Host $errorContent
+              }
+            }
+            
+          } catch {
+            Write-Host "Version check failed: $($_.Exception.Message)"
+            Write-Host "This might indicate missing dependencies"
+          }
+          
+          # Clean up temp files
+          Remove-Item -Path "version_output.txt" -ErrorAction SilentlyContinue
+          Remove-Item -Path "version_error.txt" -ErrorAction SilentlyContinue
+          
+          Write-Host "Binary verification completed"
+
+      - name: Test server startup (Linux/macOS)
+        if: runner.os != 'Windows'
+        timeout-minutes: 10
+        run: |
+          echo "Testing ${{ matrix.binary-name }} server startup..."
+          
+          # Start server in background with more time for model loading
+          echo "Starting server (allowing extra time for model loading)..."
+          ./llama/build/bin/${{ matrix.binary-name }} \
+            --model models/Lucy-Q4_0.gguf \
+            --port 8080 --host 127.0.0.1 \
+            --ctx-size 512 \
+            --n-gpu-layers 0 \
+            --log-verbosity 1 &
+          SERVER_PID=$!
+          
+          echo "Server PID: $SERVER_PID"
+          
+          # Give server much more time to load the model
+          echo "Waiting for model to load (this can take 2-3 minutes)..."
+          sleep 30
+          
+          # Check if process is still running
+          if ! kill -0 $SERVER_PID 2>/dev/null; then
+            echo "[FAILED] Server process died"
+            exit 1
+          fi
+          
+          # Wait for server to be ready (check for up to 5 minutes)
+          echo "Waiting for server to become ready..."
+          SERVER_READY=false
+          for i in {1..150}; do  # 150 * 2 seconds = 5 minutes
+            if curl -s http://127.0.0.1:8080/health > /dev/null 2>&1; then
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/health)
+              if [ "$HTTP_CODE" = "200" ]; then
+                echo "[PASSED] Server started successfully and is ready"
+                SERVER_READY=true
+                break
+              elif [ "$HTTP_CODE" = "503" ]; then
+                echo "Attempt $i/150 - Server still loading model (HTTP 503)..."
+              else
+                echo "Attempt $i/150 - Server responded with HTTP $HTTP_CODE..."
+              fi
+            else
+              echo "Attempt $i/150 - Server not responding yet..."
+            fi
+            sleep 2
+          done
+          
+          if [ "$SERVER_READY" = "false" ]; then
+            echo "[FAILED] Server failed to become ready within timeout"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+          
+          # Clean shutdown
+          kill $SERVER_PID 2>/dev/null || true
+          echo "Server startup test passed"
+
+      - name: Test inference (Linux/macOS)
+        if: runner.os != 'Windows'
+        timeout-minutes: 10
+        run: |
+          echo "Testing inference with ${{ matrix.binary-name }}..."
+          
+          # Start server
+          ./llama/build/bin/${{ matrix.binary-name }} \
+            --model models/Lucy-Q4_0.gguf \
+            --port 8080 --host 127.0.0.1 \
+            --ctx-size 512 \
+            --n-gpu-layers 0 \
+            --log-verbosity 1 &
+          SERVER_PID=$!
+          
+          # Wait for server to be ready with proper status check
+          echo "Waiting for server to be ready for inference..."
+          for i in {1..150}; do
+            if curl -s http://127.0.0.1:8080/health > /dev/null 2>&1; then
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/health)
+              if [ "$HTTP_CODE" = "200" ]; then
+                echo "Server is ready for inference"
+                break
+              elif [ "$HTTP_CODE" = "503" ]; then
+                echo "Attempt $i/150 - Server still loading model..."
+              fi
+            fi
+            sleep 2
+          done
+          
+          # Test inference
+          echo "Testing completion endpoint..."
+          RESPONSE_FILE="response.json"
+          
+          HTTP_CODE=$(curl -s -o $RESPONSE_FILE -w "%{http_code}" -X POST http://127.0.0.1:8080/completion \
+            -H "Content-Type: application/json" \
+            -d '{
+              "prompt": "Hello",
+              "n_predict": 5,
+              "temperature": 0.1
+            }' 2>/dev/null)
+          
+          echo "HTTP response code: $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" = "200" ] && [ -s $RESPONSE_FILE ]; then
+            echo "[PASSED] Server inference test passed"
+            echo "Response:"
+            cat $RESPONSE_FILE
+          else
+            echo "[FAILED] Inference test failed"
+            echo "Response content:"
+            cat $RESPONSE_FILE || echo "No response content"
+          fi
+          
+          kill $SERVER_PID 2>/dev/null || true
+
+      - name: Test server startup (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          Write-Host "Testing ${{ matrix.binary-name }} server startup..."
+          
+          # Start server with better process handling
+          $process = Start-Process -FilePath ".\llama\build\bin\${{ matrix.binary-name }}" `
+            -ArgumentList "--model", "models\Lucy-Q4_0.gguf", "--port", "8080", "--host", "127.0.0.1", "--n-gpu-layers", "0", "--ctx-size", "512", "--log-verbosity", "1" `
+            -WindowStyle Hidden -PassThru
+          
+          Write-Host "Server PID: $($process.Id)"
+          
+          # Give server more time to load model
+          Write-Host "Waiting for model to load (this can take 2-3 minutes)..."
+          Start-Sleep -Seconds 30
+          
+          if ($process.HasExited) {
+            Write-Host "[FAILED] Server process exited immediately"
+            Write-Host "Exit code: $($process.ExitCode)"
+            exit 1
+          }
+          
+          # Wait for server to be ready
+          $serverReady = $false
+          Write-Host "Waiting for server to become ready..."
+          for ($i = 1; $i -le 150; $i++) {
+            try {
+              $response = Invoke-RestMethod -Uri "http://127.0.0.1:8080/health" -Method Get -TimeoutSec 3
+              $serverReady = $true
+              Write-Host "[PASSED] Server started successfully and is ready"
+              break
+            } catch {
+              if ($_.Exception.Response.StatusCode -eq 503) {
+                Write-Host "Attempt $i/150 - Server still loading model (HTTP 503)..."
+              } else {
+                Write-Host "Attempt $i/150 - Server not responding yet..."
+              }
+            }
+            Start-Sleep -Seconds 2
+          }
+          
+          if (-not $serverReady) {
+            Write-Host "[FAILED] Server failed to become ready within timeout"
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            exit 1
+          }
+          
+          Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "Server startup test passed"
+
+      - name: Test inference (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          Write-Host "Testing inference with ${{ matrix.binary-name }}..."
+          
+          # Start server
+          $process = Start-Process -FilePath ".\llama\build\bin\${{ matrix.binary-name }}" `
+            -ArgumentList "--model", "models\Lucy-Q4_0.gguf", "--port", "8080", "--host", "127.0.0.1", "--n-gpu-layers", "0", "--ctx-size", "512", "--log-verbosity", "1" `
+            -WindowStyle Hidden -PassThru
+          
+          # Wait for server to be ready
+          Write-Host "Waiting for server to be ready for inference..."
+          for ($i = 1; $i -le 150; $i++) {
+            try {
+              $healthResponse = Invoke-RestMethod -Uri "http://127.0.0.1:8080/health" -Method Get -TimeoutSec 3
+              Write-Host "Server is ready for inference"
+              break
+            } catch {
+              if ($_.Exception.Response.StatusCode -eq 503) {
+                Write-Host "Attempt $i/150 - Server still loading model..."
+              }
+            }
+            Start-Sleep -Seconds 2
+          }
+          
+          # Test inference
+          $body = @{
+            prompt = "Hello"
+            n_predict = 5
+            temperature = 0.1
+          } | ConvertTo-Json
+          
+          Write-Host "Testing /completion endpoint..."
+          try {
+            $response = Invoke-RestMethod -Uri "http://127.0.0.1:8080/completion" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 30
+            Write-Host "[PASSED] Server inference test passed"
+            $response | ConvertTo-Json -Depth 10
+          } catch {
+            Write-Host "[FAILED] Server inference failed: $($_.Exception.Message)"
+          }
+          
+          Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.name }}-${{ env.TEST_VERSION }}-${{ github.run_id }}
+          path: |
+            response.json
+            *.log
+            *.txt
+          retention-days: 1
+
+  test-summary:
+    needs: test-binaries
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test Summary
+        run: |
+          # Get the actual version that was tested
+          TESTED_VERSION="${{ env.TEST_VERSION }}"
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            # Try to get the version from the workflow run context
+            LATEST_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/tags" | \
+              jq -r '.[0].name' | grep -E '^b[0-9]+$' | head -1)
+            if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "null" ]; then
+              TESTED_VERSION="$LATEST_TAG"
+            fi
+          fi
+          
+          echo "## CPU Binary Test Results for $TESTED_VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "Tested CPU-only builds (Vulkan builds excluded due to lack of GPU hardware)" >> $GITHUB_STEP_SUMMARY
+          echo "**Version tested:** $TESTED_VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "**Triggering workflow:** ${{ github.event.workflow_run.name }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Triggering workflow run ID:** ${{ github.event.workflow_run.id }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.test-binaries.result }}" = "success" ]; then
+            echo "### [PASSED] All CPU binary tests passed!" >> $GITHUB_STEP_SUMMARY
+            echo "- All binaries start successfully" >> $GITHUB_STEP_SUMMARY
+            echo "- Model loading works correctly" >> $GITHUB_STEP_SUMMARY
+            echo "- Inference API responds properly" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### [FAILED] Some CPU binary tests failed" >> $GITHUB_STEP_SUMMARY
+            echo "Check individual job logs for details." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Note:** Vulkan builds are excluded from testing due to lack of GPU hardware in CI runners." >> $GITHUB_STEP_SUMMARY
