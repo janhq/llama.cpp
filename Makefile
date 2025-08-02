@@ -64,6 +64,15 @@ else ifeq ($(shell uname -s),Linux)
 else
 	@echo "Starting notarization for macOS binaries..."
 	@find build/bin -type f -perm +111 -exec env QUILL_NOTARY_KEY_ID="$(QUILL_NOTARY_KEY_ID)" QUILL_NOTARY_ISSUER="$(QUILL_NOTARY_ISSUER)" QUILL_NOTARY_KEY="$(QUILL_NOTARY_KEY)" quill notarize {} \;
+	@echo "All macOS binaries notarized successfully"
+	
+	@echo "Stapling notarization tickets to binaries..."
+	@find build/bin -type f -perm +111 -exec xcrun stapler staple {} \;
+	@echo "All notarization tickets stapled successfully"
+	
+	@echo "Verifying notarization status..."
+	@find build/bin -type f -perm +111 -exec xcrun stapler validate {} \;
+	@echo "All macOS binaries verified as notarized"
 endif
 
 package:
