@@ -63,17 +63,7 @@ else ifeq ($(shell uname -s),Linux)
 	@exit 0
 else
 	@echo "Starting notarization for macOS binaries..."
-	@find build/bin -type f -exec | while read binary; do \
-		echo "Notarizing $$(basename $$binary)..."; \
-		quill notarize "$$binary"; \
-		if [ $$? -eq 0 ]; then \
-			echo "Successfully notarized $$(basename $$binary)"; \
-		else \
-			echo  Failed to notarize $$(basename $$binary)"; \
-			exit 1; \
-		fi; \
-	done
-	@echo "All macOS binaries notarized successfully"
+	@find build/bin -type f -exec env QUILL_NOTARY_KEY_ID="$(QUILL_NOTARY_KEY_ID)" QUILL_NOTARY_ISSUER="$(QUILL_NOTARY_ISSUER)" QUILL_NOTARY_KEY="$(QUILL_NOTARY_KEY)" quill notarize {} \;
 endif
 
 package:
