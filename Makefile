@@ -63,7 +63,7 @@ else ifeq ($(shell uname -s),Linux)
 	@exit 0
 else
 	@echo "Starting notarization for macOS binaries..."
-	@find build/bin -type f -exec env QUILL_NOTARY_KEY_ID="$(QUILL_NOTARY_KEY_ID)" QUILL_NOTARY_ISSUER="$(QUILL_NOTARY_ISSUER)" QUILL_NOTARY_KEY="$(QUILL_NOTARY_KEY)" quill notarize {} \;
+	@find build/bin -type f -executable -exec env QUILL_NOTARY_KEY_ID="$(QUILL_NOTARY_KEY_ID)" QUILL_NOTARY_ISSUER="$(QUILL_NOTARY_ISSUER)" QUILL_NOTARY_KEY="$(QUILL_NOTARY_KEY)" quill notarize {} \;
 endif
 
 package:
