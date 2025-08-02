@@ -11,6 +11,10 @@ AZURE_TENANT_ID ?= xxxx
 AZURE_CLIENT_SECRET ?= xxxx
 AZURE_CERT_NAME ?= xxxx
 DEVELOPER_ID ?= xxxx
+NOTARIZE ?= false
+QUILL_NOTARY_KEY_ID ?= ""
+QUILL_NOTARY_ISSUER ?= ""
+QUILL_NOTARY_KEY ?= "/tmp/notary-key.p8"
 
 # Default target, does nothing
 all:
@@ -43,6 +47,33 @@ else ifeq ($(shell uname -s),Linux)
 	@exit 0
 else
 	find "build/bin" -type f -exec codesign --force -s "$(DEVELOPER_ID)" --options=runtime {} \;
+endif
+
+notarize:
+ifeq ($(NOTARIZE),false)
+	@echo "Skipping Notarization"
+	@exit 0
+endif
+
+ifeq ($(OS),Windows_NT)
+	@echo "Skipping Notarization for Windows"
+	@exit 0
+else ifeq ($(shell uname -s),Linux)
+	@echo "Skipping Notarization for Linux"
+	@exit 0
+else
+	@echo "Starting notarization for macOS binaries..."
+	@find build/bin -type f -exec | while read binary; do \
+		echo "Notarizing $$(basename $$binary)..."; \
+		quill notarize "$$binary"; \
+		if [ $$? -eq 0 ]; then \
+			echo "Successfully notarized $$(basename $$binary)"; \
+		else \
+			echo  Failed to notarize $$(basename $$binary)"; \
+			exit 1; \
+		fi; \
+	done
+	@echo "All macOS binaries notarized successfully"
 endif
 
 package:

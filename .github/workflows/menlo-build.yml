@@ -399,6 +399,31 @@ jobs:
         run: |
           make codesign CODE_SIGN=true DEVELOPER_ID="${{ secrets.DEVELOPER_ID }}"
 
+      - name: Install Quill for notarization
+        if: runner.os == 'macOS'
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/quill/main/install.sh | sh -s -- -b /usr/local/bin
+          quill --version
+
+      - name: Prepare notary key
+        if: runner.os == 'macOS'
+        run: |
+          base64 -d <<< "$NOTARIZE_P8_BASE64" > /tmp/notary-key.p8
+          chmod 600 /tmp/notary-key.p8
+        env:
+          NOTARIZE_P8_BASE64: ${{ secrets.NOTARIZE_P8_BASE64 }}
+
+      - name: Notarize macOS binaries
+        if: runner.os == 'macOS'
+        run: |
+          make notarize NOTARIZE=true QUILL_NOTARY_KEY_ID="${{ secrets.NOTARY_KEY_ID }}" QUILL_NOTARY_ISSUER="${{ secrets.NOTARY_ISSUER }}" QUILL_NOTARY_KEY="/tmp/notary-key.p8"
+
+      - name: Cleanup notary key
+        if: runner.os == 'macOS'
+        run: |
+          rm -f /tmp/notary-key.p8
+          echo "Notary key cleaned up"
+
       - name: Code Signing Windows
         if: runner.os == 'Windows'
         shell: cmd
