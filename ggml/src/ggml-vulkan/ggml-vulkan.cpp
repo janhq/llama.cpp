@@ -2106,12 +2106,12 @@ static void ggml_vk_load_shaders(vk_device& device) {
         s_mmq_wg_denoms = { 32,  64,  1 };
 
         // spec constants and tile sizes for quant matmul (Qi_K)
-        l_warptile_mmq_k = { 256, 64, 128, 64,  1 };
-        m_warptile_mmq_k = { 256, 32,  64, 64,  0 };
-        s_warptile_mmq_k = { 256, 32,  32, 128, 0 };
-        l_mmq_wg_denoms_k = { 64, 128, 1 };
-        m_mmq_wg_denoms_k = { 32,  64, 1 };
-        s_mmq_wg_denoms_k = { 32,  32, 1 };
+        l_warptile_mmq_k = { 256, 128, 256, 64, 1 };
+        m_warptile_mmq_k = { 256, 128, 128, 64, 1 };
+        s_warptile_mmq_k = { 256, 32,  64, 128, 0 };
+        l_mmq_wg_denoms_k = { 128, 256, 1 };
+        m_mmq_wg_denoms_k = { 128, 128, 1 };
+        s_mmq_wg_denoms_k = { 32,  64,  1 };
 
         // spec constants and tile sizes for quant matmul_id
         l_warptile_mmqid = { 256, 128, 128, 16, 0 };
@@ -2885,7 +2885,7 @@ static void ggml_vk_load_shaders(vk_device& device) {
             ggml_vk_create_pipeline(device, device->pipeline_mul_mat_vec_p021_f16_f32[i], "mul_mat_vec_p021_f16_f32"+std::to_string(i+1), mul_mat_vec_p021_f16_f32_len,              mul_mat_vec_p021_f16_f32_data,              "main", 3, 6 * sizeof(uint32_t), {1, 1, 1}, {device->subgroup_size, i + 1}, 1, true);
         }
     }
-    ggml_vk_create_pipeline(device, device->pipeline_mul_mat_vec_nc_f16_f32, "mul_mat_vec_nc_f16_f32", mul_mat_vec_nc_f16_f32_len, mul_mat_vec_nc_f16_f32_data, "main", 3, 9 * sizeof(uint32_t), {1, 1, 1}, {}, 1);
+    ggml_vk_create_pipeline(device, device->pipeline_mul_mat_vec_nc_f16_f32, "mul_mat_vec_nc_f16_f32", mul_mat_vec_nc_f16_f32_len, mul_mat_vec_nc_f16_f32_data, "main", 3, 12 * sizeof(uint32_t), {1, 1, 1}, {}, 1);
 
     ggml_vk_create_pipeline(device, device->pipeline_norm_f32, "norm_f32", norm_f32_len, norm_f32_data, "main", 2, sizeof(vk_op_push_constants), {1, 1, 1}, {}, 1);
     ggml_vk_create_pipeline(device, device->pipeline_group_norm_f32, "group_norm_f32", group_norm_f32_len, group_norm_f32_data, "main", 2, sizeof(vk_op_push_constants), {1, 1, 1}, {}, 1);
@@ -5022,26 +5022,37 @@ static void ggml_vk_buffer_memset(vk_buffer& dst, size_t offset, uint32_t c, siz
     ggml_vk_queue_command_pools_cleanup(dst->device);
 }
 
-static uint32_t ggml_vk_guess_split_k(ggml_backend_vk_context * ctx, int m, int n, int k, const vk_pipeline& pipeline) {
+static uint32_t ggml_vk_guess_split_k(ggml_backend_vk_context * ctx, uint32_t m, uint32_t n, uint32_t k, const vk_pipeline& pipeline) {
     VK_LOG_DEBUG("ggml_vk_guess_split_k(" << m << ", " << n << ", " << k << ")");
 
     uint32_t split_k = 1;
-    if (ctx->device->shader_core_count != 0 && m >= (int)pipeline->wg_denoms[0] && n >= (int)pipeline->wg_denoms[1]) {
+    if (ctx->device->shader_core_count != 0 && m >= pipeline->wg_denoms[0] && n >= pipeline->wg_denoms[1]) {
         // If k is 'large' and the SMs will fill less than halfway, use split_k.
         uint32_t m_tiles = CEIL_DIV(m, pipeline->wg_denoms[0]);
         uint32_t n_tiles = CEIL_DIV(n, pipeline->wg_denoms[1]);
-        if (k >= 2048 && m_tiles * n_tiles < ctx->device->shader_core_count / 2) {
-            split_k = ctx->device->shader_core_count / (m_tiles * n_tiles);
-            // Clamp to 2 or 4
-            split_k = std::min(split_k, 4u);
-            if (split_k == 3) {
-                split_k = 2;
+
+        if (k >= 2048) {
+            if (m_tiles * n_tiles <= ctx->device->shader_core_count / 2) {
+                split_k = ctx->device->shader_core_count / (m_tiles * n_tiles);
+            } else if (m_tiles * n_tiles <= ctx->device->shader_core_count * 2 / 3) {
+                split_k = 3;
             }
-            if (ctx->device->coopmat2) {
-                // coopmat2 shader expects splits to be aligned to 256
-                while (split_k > 1 && ((k / split_k) % 256) != 0) {
-                    split_k /= 2;
+            // Cap the split at 8x. Unless k is huge this is a lot of overhead.
+            split_k = std::min(split_k, 8u);
+
+            // ggml_vk_matmul will align the splits to be a multiple of 256.
+            // If this rounded up size would cause the last split to be empty,
+            // then reduce the split count.
+            while (true) {
+                if (split_k == 1) {
+                    break;
                 }
+                uint32_t k_split = CEIL_DIV(k, split_k);
+                k_split = ROUNDUP_POW2(k_split, 256);
+                if (k_split * (split_k - 1) < k) {
+                    break;
+                }
+                split_k--;
             }
         }
     }
@@ -5053,9 +5064,22 @@ static vk_pipeline ggml_vk_guess_matmul_pipeline(ggml_backend_vk_context * ctx, 
     VK_LOG_DEBUG("ggml_vk_guess_matmul_pipeline(" << m << ", " << n << ", " << aligned << ", " << ggml_type_name(src0_type) << ", " << ggml_type_name(src1_type) << ")");
 
     if (ctx->device->coopmat2) {
+        const uint32_t shader_core_count = ctx->device->shader_core_count;
+        const uint32_t tiles_l = CEIL_DIV(m, mmp->a_l->wg_denoms[0]) * CEIL_DIV(n, mmp->a_l->wg_denoms[1]);
+        const uint32_t tiles_m = CEIL_DIV(m, mmp->a_m->wg_denoms[0]) * CEIL_DIV(n, mmp->a_m->wg_denoms[1]);
+
         // Use large shader when the N dimension is greater than the medium shader's tile size
         uint32_t crossover_large = mmp->m->wg_denoms[1];
-        if ((ctx->device->mul_mat_l[src0_type] && (n > crossover_large)) || (!ctx->device->mul_mat_m[src0_type] && !ctx->device->mul_mat_s[src0_type])) {
+
+        // Prefer large over medium if either:
+        // - medium or large tiles would overfill the GPU
+        // - large tiles with a split_k==3 fits in the GPU and medium tiles with split_k==2 does not
+        //   (medium with split_k==2 is probably better if it fits - more workgroups running and less split_k overhead)
+        bool prefer_large = tiles_m > shader_core_count || tiles_l > shader_core_count ||
+                            // split_k==3 with large tiles likely better than medium tiles with no split_k.
+                            (tiles_l <= shader_core_count / 3 && tiles_m > shader_core_count / 2);
+
+        if ((ctx->device->mul_mat_l[src0_type] && (n > crossover_large && prefer_large)) || (!ctx->device->mul_mat_m[src0_type] && !ctx->device->mul_mat_s[src0_type])) {
             return aligned ? mmp->a_l : mmp->l;
         }
         // Use medium shader when the N dimension is greater than the small shader's tile size
@@ -5099,7 +5123,11 @@ static void ggml_vk_matmul(
 
     GGML_ASSERT(batch_stride_d == m * n);
 
-    const vk_mat_mat_push_constants pc1 = { m, n, k, stride_a, stride_b, stride_d, batch_stride_a, batch_stride_b, batch_stride_d, CEIL_DIV(k, split_k), ne02, ne12, broadcast2, broadcast3, padded_n };
+    // Round the split size up to a multiple of 256 (k-quant alignment)
+    uint32_t k_split = CEIL_DIV(k, split_k);
+    k_split = ROUNDUP_POW2(k_split, 256);
+
+    const vk_mat_mat_push_constants pc1 = { m, n, k, stride_a, stride_b, stride_d, batch_stride_a, batch_stride_b, batch_stride_d, k_split, ne02, ne12, broadcast2, broadcast3, padded_n };
     // Make sure enough workgroups get assigned for split k to work
     ggml_vk_dispatch_pipeline(ctx, subctx, pipeline, { a, b, split_k_buffer }, pc1, { (CEIL_DIV(m, pipeline->wg_denoms[0]) * pipeline->wg_denoms[0]) * split_k, n, batch });
     ggml_vk_sync_buffers(subctx);
@@ -5821,7 +5849,7 @@ static void ggml_vk_mul_mat_vec_nc_f16_f32(ggml_backend_vk_context * ctx, vk_con
     const uint64_t ne00 = src0->ne[0];
     const uint64_t ne01 = src0->ne[1];
     const uint64_t ne02 = src0->ne[2];
-    // const uint64_t ne03 = src0->ne[3];
+    const uint64_t ne03 = src0->ne[3];
 
     const uint64_t nb01 = src0->nb[1];
     const uint64_t nb02 = src0->nb[2];
@@ -5833,7 +5861,12 @@ static void ggml_vk_mul_mat_vec_nc_f16_f32(ggml_backend_vk_context * ctx, vk_con
     const uint64_t ne12 = src1->ne[2];
     // const uint64_t ne13 = src1->ne[3];
 
+    const uint32_t nb03 = (uint32_t)(src0->nb[3] / sizeof(ggml_fp16_t));
+    const uint32_t nb13 = (uint32_t)(src1->nb[3] / sizeof(float));
+    const uint32_t nb23 = (uint32_t)(dst->nb[3] / sizeof(float));
+
     GGML_ASSERT(ne11 == 1);
+    GGML_ASSERT(src0->ne[3] == src1->ne[3]); // checked in supports_op
 
     ggml_backend_vk_buffer_context * dst_buf_ctx = (ggml_backend_vk_buffer_context *)dst->buffer->context;
     ggml_backend_vk_buffer_context * src0_buf_ctx = (ggml_backend_vk_buffer_context *)src0->buffer->context;
@@ -5849,7 +5882,7 @@ static void ggml_vk_mul_mat_vec_nc_f16_f32(ggml_backend_vk_context * ctx, vk_con
         src1_uma = d_Qy != nullptr;
     }
 
-    const uint64_t d_ne = ne01 * ne11 * ne12;
+    const uint64_t d_ne = ne01 * ne11 * ne12 * ne03;
 
     const uint32_t row_stride_x = nb01 / sizeof(ggml_fp16_t);
     const uint32_t channel_stride_x = nb02 / sizeof(ggml_fp16_t);
@@ -5884,10 +5917,10 @@ static void ggml_vk_mul_mat_vec_nc_f16_f32(ggml_backend_vk_context * ctx, vk_con
     const uint64_t d_shader_offset = d_buf_offset - d_buffer_offset;
 
     // compute
-    const std::array<uint32_t, 9> pc = { (uint32_t)ne00, (uint32_t)ne01, row_stride_x, channel_stride_x, channel_stride_y, (uint32_t)(ne12 / ne02), (uint32_t)ne12, (uint32_t)(qy_shader_offset / ggml_type_size(src1->type)), (uint32_t)(d_shader_offset / ggml_type_size(dst->type)) };
+    const std::array<uint32_t, 12> pc = { (uint32_t)ne00, (uint32_t)ne01, row_stride_x, channel_stride_x, channel_stride_y, (uint32_t)(ne12 / ne02), (uint32_t)ne12, (uint32_t)(qy_shader_offset / ggml_type_size(src1->type)), (uint32_t)(d_shader_offset / ggml_type_size(dst->type)), nb03, nb13, nb23 };
     ggml_vk_sync_buffers(subctx);
     ggml_vk_dispatch_pipeline(ctx, subctx, ctx->device->pipeline_mul_mat_vec_nc_f16_f32,
-        { vk_subbuffer{ d_Qx, qx_buf_offset, qx_sz }, vk_subbuffer{ d_Qy, qy_buffer_offset, qy_sz + qy_shader_offset }, vk_subbuffer{ d_D, d_buffer_offset, d_sz + d_shader_offset } }, pc, { 1, (uint32_t)ne01, (uint32_t)ne12 });
+        { vk_subbuffer{ d_Qx, qx_buf_offset, qx_sz }, vk_subbuffer{ d_Qy, qy_buffer_offset, qy_sz + qy_shader_offset }, vk_subbuffer{ d_D, d_buffer_offset, d_sz + d_shader_offset } }, pc, { (uint32_t)ne03, (uint32_t)ne01, (uint32_t)ne12 });
 }
 
 static void ggml_vk_mul_mat(ggml_backend_vk_context * ctx, vk_context& subctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst, bool dryrun = false) {
