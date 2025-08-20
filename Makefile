@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Makefile for Cortex llamacpp engine - Build, Lint, Test, and Clean
 
 CMAKE_EXTRA_FLAGS ?= ""
@@ -75,3 +76,14 @@ else ifeq ($(shell uname -s),Linux)
 else
 	@tar -czvf llama.tar.gz build/bin;
 endif
+=======
+define newline
+
+
+endef
+
+$(error Build system changed:$(newline)\
+The Makefile build has been replaced by CMake.$(newline)$(newline)\
+For build instructions see:$(newline)\
+https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md$(newline)${newline})
+>>>>>>> 37f10f95 (make : remove make in favor of CMake (#15449))
