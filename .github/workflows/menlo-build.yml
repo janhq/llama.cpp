@@ -65,13 +65,22 @@ jobs:
       matrix:
         include:
           - os: "linux"
-            name: "common-cpus-x64"
+            name: "linux-common-cpus-x64"
             runs-on: "ubuntu-20-04"
             cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
             ccache-dir: "/home/runner/.ccache"
+          - os: "windows"
+            name: "windows-common-cpus-x64"
+            runs-on: "windows-cuda-12-0"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: false
+            ccache: false
+            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
+
           # - os: "linux"
           #   name: "noavx-x64"
           #   runs-on: "ubuntu-20-04"
