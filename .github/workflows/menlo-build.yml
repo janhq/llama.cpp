@@ -309,7 +309,7 @@ jobs:
         continue-on-error: true
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       - name: Install tools on Windows
         if: runner.os == 'Windows'
@@ -319,8 +319,13 @@ jobs:
       - name: Install tools on Linux
         if: runner.os == 'Linux'
         run: |
+          set -euxo pipefail
+          sudo apt-get update -y
           sudo apt-get install -y ninja-build
-          python3 -m pip install awscli
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install -U pip
+          python -m pip install awscli
 
           if [ "${{ matrix.os }}${{ matrix.name }}" == "linuxarm64" ]; then
             sudo apt-get install -y ccache
