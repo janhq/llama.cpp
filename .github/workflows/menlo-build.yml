@@ -529,6 +529,7 @@ jobs:
         continue-on-error: true
         if: always() && runner.os == 'Linux'
         run: |
+          . .venv/bin/activate
           aws s3 sync ${{ matrix.ccache-dir }} s3://${{ secrets.MINIO_BUCKET_NAME }}/ccache-data-${{ matrix.os }}-${{ matrix.name }}  --endpoint ${{ secrets.MINIO_ENDPOINT }}
         env:
           AWS_ACCESS_KEY_ID: "${{ secrets.MINIO_ACCESS_KEY_ID }}"
