@@ -323,6 +323,7 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y ninja-build
           python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> $GITHUB_PATH
           . .venv/bin/activate
           python -m pip install -U pip
           python -m pip install awscli
@@ -354,7 +355,6 @@ jobs:
         if: runner.os == 'Linux'
         continue-on-error: true
         run: |
-          . .venv/bin/activate
           aws s3 sync s3://${{ secrets.MINIO_BUCKET_NAME }}/ccache-data-${{ matrix.os }}-${{ matrix.name }} ${{ matrix.ccache-dir }}  --endpoint ${{ secrets.MINIO_ENDPOINT }} --cli-read-timeout 0
         env:
           AWS_ACCESS_KEY_ID: "${{ secrets.MINIO_ACCESS_KEY_ID }}"
@@ -529,7 +529,6 @@ jobs:
         continue-on-error: true
         if: always() && runner.os == 'Linux'
         run: |
-          . .venv/bin/activate
           aws s3 sync ${{ matrix.ccache-dir }} s3://${{ secrets.MINIO_BUCKET_NAME }}/ccache-data-${{ matrix.os }}-${{ matrix.name }}  --endpoint ${{ secrets.MINIO_ENDPOINT }}
         env:
           AWS_ACCESS_KEY_ID: "${{ secrets.MINIO_ACCESS_KEY_ID }}"
