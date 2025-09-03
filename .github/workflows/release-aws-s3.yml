@@ -1,0 +1,170 @@
+name: Mirror Releases to S3
+
+on:
+  release:
+    types: [published]     # Auto trigger when a release is published
+  workflow_dispatch:        # Manual trigger
+    inputs:
+      tag_name:
+        description: "Release tag (e.g. v0.6.9). Takes precedence if both provided."
+        required: false
+        type: string
+      release_name:
+        description: "Release name (e.g. Jan 0.6.9). Used when tag_name is not provided."
+        required: false
+        type: string
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CDN_HOST: catalog.jan.ai      # CDN domain pointing to S3 (CloudFront/Cloudflare/R2)
+      BUCKET: ${{ secrets.CATALOG_AWS_S3_BUCKET_NAME }}
+      AWS_REGION: ${{ secrets.CATALOG_AWS_REGION }}
+      MAX_HISTORY: "20"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release (automatic or manual)
+        id: rel
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tagInput = core.getInput('tag_name');
+            const nameInput = core.getInput('release_name');
+            let release;
+
+            // Prefer tag_name if provided
+            if (tagInput) {
+              try {
+                release = await github.rest.repos.getReleaseByTag({ owner, repo, tag: tagInput });
+                release = release.data;
+              } catch (e) {
+                core.setFailed(`Release not found for tag '${tagInput}'.`);
+                return;
+              }
+            } else if (nameInput) {
+              // GitHub does not support get-by-name directly → list and search
+              const rels = await github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 });
+              release = rels.find(r => (r.name || r.tag_name) === nameInput);
+              if (!release) {
+                core.setFailed(`Release not found for name '${nameInput}'.`);
+                return;
+              }
+            } else {
+              // Triggered by release event
+              if (!context.payload.release) {
+                core.setFailed('No release found in payload and no manual input provided.');
+                return;
+              }
+              release = context.payload.release;
+            }
+
+            const tag = release.tag_name;
+            const name = release.name || tag;
+            const assets = (release.assets || []).map(a => ({
+              name: a.name,
+              size: a.size,
+              gh_url: a.browser_download_url
+            }));
+
+            core.setOutput('tag', tag);
+            core.setOutput('name', name);
+            core.setOutput('published_at', release.published_at || new Date().toISOString());
+            core.setOutput('assets', JSON.stringify(assets));
+
+      - name: Prepare assets directory
+        run: mkdir -p out meta
+
+      - name: Download assets from GitHub
+        run: |
+          echo '${{ steps.rel.outputs.assets }}' \
+          | jq -r '.[].gh_url' \
+          | while read url; do
+              f="out/$(basename "$url")"
+              echo "Downloading $url -> $f"
+              curl -L --fail -o "$f" "$url"
+            done
+
+      - name: Build/merge releases.json (keep max 100 entries)
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+          NAME: ${{ steps.rel.outputs.name }}
+          PUBLISHED_AT: ${{ steps.rel.outputs.published_at }}
+          CDN_HOST: ${{ env.CDN_HOST }}
+          MAX_HISTORY: ${{ env.MAX_HISTORY }}
+        run: |
+          test -f meta/releases.json || echo '[]' > meta/releases.json
+          node - <<'NODE'
+          const fs = require('fs')
+          const path = require('path')
+
+          const TAG = process.env.TAG
+          const NAME = process.env.NAME || TAG
+          const PUBLISHED_AT = process.env.PUBLISHED_AT || new Date().toISOString()
+          const CDN = process.env.CDN_HOST
+          const MAX = parseInt(process.env.MAX_HISTORY || '100', 10)
+
+          const files = fs.readdirSync('out')
+          const sizeOf = f => fs.statSync(path.join('out', f)).size
+
+          const entry = {
+            tag_name: TAG,
+            name: NAME,
+            published_at: PUBLISHED_AT,
+            assets: files.map(f => ({
+              name: f,
+              size: sizeOf(f),
+              browser_download_url: `https://${CDN}/releases/${TAG}/${f}`
+            }))
+          }
+
+          const p = 'meta/releases.json'
+          const arr = JSON.parse(fs.readFileSync(p, 'utf8'))
+
+          // Update or insert at the top
+          const idx = arr.findIndex(x => x.tag_name === TAG)
+          if (idx >= 0) arr.splice(idx, 1)
+          arr.unshift(entry)
+
+          // Trim history to MAX entries
+          while (arr.length > MAX) arr.pop()
+
+          fs.writeFileSync(p, JSON.stringify(arr, null, 2))
+          NODE
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.CATALOG_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CATALOG_AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Upload assets to S3
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+          BUCKET: ${{ env.BUCKET }}
+        run: |
+          echo "Uploading assets for tag $TAG to s3://$BUCKET/releases/$TAG/"
+          aws s3 sync out "s3://$BUCKET/releases/$TAG/"
+
+      - name: Update 'latest' alias in S3
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+          BUCKET: ${{ env.BUCKET }}
+        run: |
+          echo "Updating 'latest' alias to point to tag $TAG"
+          aws s3 rm "s3://$BUCKET/releases/latest/" --recursive || true
+          aws s3 sync "s3://$BUCKET/releases/$TAG/" "s3://$BUCKET/releases/latest/"
+
+      - name: Upload releases.json
+        env:
+          BUCKET: ${{ env.BUCKET }}
+        run: |
+          echo "Uploading releases.json"
+          aws s3 cp meta/releases.json "s3://$BUCKET/releases/releases.json" \
+            --content-type 'application/json' --cache-control 'no-store'
