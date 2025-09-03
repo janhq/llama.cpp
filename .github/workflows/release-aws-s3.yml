@@ -24,6 +24,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Derive repo name safely for all events (release/workflow_dispatch)
+      - name: Derive REPO_NAME
+        id: repoinfo
+        run: |
+          echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> "$GITHUB_ENV"
+          echo "OWNER_NAME=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_ENV"
+          echo "Repo resolved to: ${GITHUB_REPOSITORY##*/}"
+
       - name: Resolve release (release event or manual by tag)
         id: rel
         uses: actions/github-script@v7
@@ -67,8 +75,16 @@ jobs:
             core.setOutput('name', name);
             core.setOutput('published_at', release.published_at || new Date().toISOString());
             core.setOutput('assets', JSON.stringify(assets));
+
       - name: Prepare assets directory
         run: mkdir -p out meta
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.CATALOG_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CATALOG_AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
 
       - name: Download assets from GitHub
         run: |
@@ -80,6 +96,21 @@ jobs:
               curl -L --fail -o "$f" "$url"
             done
 
+      - name: Fetch existing releases.json from S3 (if any)
+        env:
+          BUCKET: ${{ env.BUCKET }}
+          REPO_NAME: ${{ env.REPO_NAME }}
+        run: |
+          mkdir -p meta
+          KEY="$REPO_NAME/releases/releases.json"
+          if aws s3api head-object --bucket "$BUCKET" --key "$KEY" >/dev/null 2>&1; then
+            echo "Found $KEY in S3. Downloading..."
+            aws s3 cp "s3://$BUCKET/$KEY" meta/releases.json
+          else
+            echo "No $KEY in S3. Initializing with empty array."
+            echo '[]' > meta/releases.json
+          fi
+
       - name: Build/merge releases.json (keep max N entries)
         env:
           TAG: ${{ steps.rel.outputs.tag }}
@@ -87,6 +118,7 @@ jobs:
           PUBLISHED_AT: ${{ steps.rel.outputs.published_at }}
           CDN_HOST: ${{ env.CDN_HOST }}
           MAX_HISTORY: ${{ env.MAX_HISTORY }}
+          REPO_NAME: ${{ env.REPO_NAME }}
         run: |
           test -f meta/releases.json || echo '[]' > meta/releases.json
           node - <<'NODE'
@@ -98,6 +130,7 @@ jobs:
           const PUBLISHED_AT = process.env.PUBLISHED_AT || new Date().toISOString()
           const CDN = process.env.CDN_HOST
           const MAX = parseInt(process.env.MAX_HISTORY || '20', 10)
+          const REPO = process.env.REPO_NAME
 
           const files = fs.readdirSync('out')
           const sizeOf = f => fs.statSync(path.join('out', f)).size
@@ -109,7 +142,8 @@ jobs:
             assets: files.map(f => ({
               name: f,
               size: sizeOf(f),
-              browser_download_url: `https://${CDN}/releases/${TAG}/${f}`
+              // URL now includes repo prefix
+              browser_download_url: `https://${CDN}/${REPO}/releases/${TAG}/${f}`
             }))
           }
 
@@ -127,34 +161,34 @@ jobs:
           fs.writeFileSync(p, JSON.stringify(arr, null, 2))
           NODE
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id:     ${{ secrets.CATALOG_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.CATALOG_AWS_SECRET_ACCESS_KEY }}
-          aws-region:            ${{ env.AWS_REGION }}
-
-      - name: Upload assets to S3
+      - name: Upload assets to S3 (repo-scoped path)
         env:
           TAG: ${{ steps.rel.outputs.tag }}
           BUCKET: ${{ env.BUCKET }}
+          REPO_NAME: ${{ env.REPO_NAME }}
         run: |
-          echo "Uploading assets for tag $TAG to s3://$BUCKET/releases/$TAG/"
-          aws s3 sync out "s3://$BUCKET/releases/$TAG/"
+          DEST="s3://$BUCKET/$REPO_NAME/releases/$TAG/"
+          echo "Uploading assets for tag $TAG to $DEST"
+          aws s3 sync out "$DEST"
 
-      - name: Update 'latest' alias in S3
+      - name: Update 'latest' alias in S3 (repo-scoped)
         env:
           TAG: ${{ steps.rel.outputs.tag }}
           BUCKET: ${{ env.BUCKET }}
+          REPO_NAME: ${{ env.REPO_NAME }}
         run: |
+          LATEST_PREFIX="s3://$BUCKET/$REPO_NAME/releases/latest/"
+          TAG_PREFIX="s3://$BUCKET/$REPO_NAME/releases/$TAG/"
           echo "Updating 'latest' alias to point to tag $TAG"
-          aws s3 rm "s3://$BUCKET/releases/latest/" --recursive || true
-          aws s3 sync "s3://$BUCKET/releases/$TAG/" "s3://$BUCKET/releases/latest/"
+          aws s3 rm "$LATEST_PREFIX" --recursive || true
+          aws s3 sync "$TAG_PREFIX" "$LATEST_PREFIX"
 
-      - name: Upload releases.json
+      - name: Upload releases.json (repo-scoped)
         env:
           BUCKET: ${{ env.BUCKET }}
+          REPO_NAME: ${{ env.REPO_NAME }}
         run: |
-          echo "Uploading releases.json"
-          aws s3 cp meta/releases.json "s3://$BUCKET/releases/releases.json" \
+          KEY="$REPO_NAME/releases/releases.json"
+          echo "Uploading releases.json to s3://$BUCKET/$KEY"
+          aws s3 cp meta/releases.json "s3://$BUCKET/$KEY" \
             --content-type 'application/json' --cache-control 'no-store'
