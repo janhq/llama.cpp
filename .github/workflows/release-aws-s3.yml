@@ -192,3 +192,47 @@ jobs:
           echo "Uploading releases.json to s3://$BUCKET/$KEY"
           aws s3 cp meta/releases.json "s3://$BUCKET/$KEY" \
             --content-type 'application/json' --cache-control 'no-store'
+
+      - name: Cleanup old release folders (by last modified)
+        env:
+          BUCKET: ${{ env.BUCKET }}
+          REPO_NAME: ${{ env.REPO_NAME }}
+          KEEP: ${{ env.MAX_HISTORY }}
+        run: |
+          set -euo pipefail
+          KEEP="${KEEP:-20}"
+          PREFIX="$REPO_NAME/releases/"
+          echo "Cleaning up to keep only $KEEP newest folders under s3://$BUCKET/$PREFIX"
+
+          # List top-level release prefixes (folders), exclude 'latest/'
+          mapfile -t FOLDERS < <(aws s3api list-objects-v2 \
+            --bucket "$BUCKET" \
+            --prefix "$PREFIX" \
+            --delimiter '/' \
+            --query 'CommonPrefixes[].Prefix' \
+            --output text | tr '\t' '\n' | sed -e "s|^$PREFIX||" | grep -E '.+/' | grep -v '^latest/$')
+
+          if [ "${#FOLDERS[@]}" -le "$KEEP" ]; then
+            echo "Nothing to delete. Found ${#FOLDERS[@]} folders."
+            exit 0
+          fi
+
+          # Build list: "LastModified folder/" and sort descending by time
+          TIMED_LIST=$(for f in "${FOLDERS[@]}"; do
+            lm=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$PREFIX$f" \
+              --query "reverse(sort_by(Contents,&LastModified))[:1][0].LastModified" \
+              --output text)
+            if [ "$lm" != "None" ] && [ -n "$lm" ]; then
+              echo "$lm $f"
+            fi
+          done | sort -r)
+
+          count=0
+          while read -r lm f; do
+            [ -z "$f" ] && continue
+            count=$((count+1))
+            if [ "$count" -gt "$KEEP" ]; then
+              echo "Deleting folder s3://$BUCKET/$PREFIX$f (last modified $lm)"
+              aws s3 rm "s3://$BUCKET/$PREFIX$f" --recursive
+            fi
+          done <<< "$TIMED_LIST"
