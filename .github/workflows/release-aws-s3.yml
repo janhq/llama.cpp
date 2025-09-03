@@ -2,16 +2,12 @@ name: Mirror Releases to S3
 
 on:
   release:
-    types: [published]     # Auto trigger when a release is published
-  workflow_dispatch:        # Manual trigger
+    types: [published]
+  workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag (e.g. v0.6.9). Takes precedence if both provided."
-        required: false
-        type: string
-      release_name:
-        description: "Release name (e.g. Jan 0.6.9). Used when tag_name is not provided."
-        required: false
+        description: "Release tag to mirror (e.g. v0.6.9). Required for manual runs."
+        required: true
         type: string
 
 jobs:
@@ -20,7 +16,7 @@ jobs:
     permissions:
       contents: read
     env:
-      CDN_HOST: catalog.jan.ai      # CDN domain pointing to S3 (CloudFront/Cloudflare/R2)
+      CDN_HOST: catalog.jan.ai                          # CDN domain pointing to S3 (CloudFront/Cloudflare/R2)
       BUCKET: ${{ secrets.CATALOG_AWS_S3_BUCKET_NAME }}
       AWS_REGION: ${{ secrets.CATALOG_AWS_REGION }}
       MAX_HISTORY: "20"
@@ -28,40 +24,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve release (automatic or manual)
+      - name: Resolve release (release event or manual by tag)
         id: rel
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo } = context.repo;
-            const tagInput = core.getInput('tag_name');
-            const nameInput = core.getInput('release_name');
-            let release;
+            const eventName = context.eventName;
+            const evInputs = (context.payload && context.payload.inputs) || {};
+            const tagInput = String(core.getInput('tag_name') || evInputs.tag_name || '').trim();
 
-            // Prefer tag_name if provided
-            if (tagInput) {
+            let release = null;
+
+            if (eventName === 'release' && context.payload.release) {
+              // Auto: use release payload
+              release = context.payload.release;
+            } else {
+              // Manual: require tag_name (no latest fallback)
+              if (!tagInput) {
+                core.setFailed('No tag_name provided. Please specify a release tag.');
+                return;
+              }
               try {
-                release = await github.rest.repos.getReleaseByTag({ owner, repo, tag: tagInput });
-                release = release.data;
-              } catch (e) {
+                const r = await github.rest.repos.getReleaseByTag({ owner, repo, tag: tagInput });
+                release = r.data;
+              } catch {
                 core.setFailed(`Release not found for tag '${tagInput}'.`);
                 return;
               }
-            } else if (nameInput) {
-              // GitHub does not support get-by-name directly → list and search
-              const rels = await github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 });
-              release = rels.find(r => (r.name || r.tag_name) === nameInput);
-              if (!release) {
-                core.setFailed(`Release not found for name '${nameInput}'.`);
-                return;
-              }
-            } else {
-              // Triggered by release event
-              if (!context.payload.release) {
-                core.setFailed('No release found in payload and no manual input provided.');
-                return;
-              }
-              release = context.payload.release;
             }
 
             const tag = release.tag_name;
@@ -72,11 +62,11 @@ jobs:
               gh_url: a.browser_download_url
             }));
 
+            core.info(`Resolved release: tag=${tag}, name=${name}, assets=${assets.length}`);
             core.setOutput('tag', tag);
             core.setOutput('name', name);
             core.setOutput('published_at', release.published_at || new Date().toISOString());
             core.setOutput('assets', JSON.stringify(assets));
-
       - name: Prepare assets directory
         run: mkdir -p out meta
 
@@ -90,7 +80,7 @@ jobs:
               curl -L --fail -o "$f" "$url"
             done
 
-      - name: Build/merge releases.json (keep max 100 entries)
+      - name: Build/merge releases.json (keep max N entries)
         env:
           TAG: ${{ steps.rel.outputs.tag }}
           NAME: ${{ steps.rel.outputs.name }}
@@ -107,7 +97,7 @@ jobs:
           const NAME = process.env.NAME || TAG
           const PUBLISHED_AT = process.env.PUBLISHED_AT || new Date().toISOString()
           const CDN = process.env.CDN_HOST
-          const MAX = parseInt(process.env.MAX_HISTORY || '100', 10)
+          const MAX = parseInt(process.env.MAX_HISTORY || '20', 10)
 
           const files = fs.readdirSync('out')
           const sizeOf = f => fs.statSync(path.join('out', f)).size
