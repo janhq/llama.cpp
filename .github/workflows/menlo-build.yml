@@ -318,28 +318,6 @@ jobs:
           ccache -V
           rm -rf /tmp/ccache-4.10.2-linux-x86_64.tar.xz /tmp/ccache-4.10.2-linux-x86_64
 
-      - name: Download ccache from s3
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        run: |
-          Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
-          refreshenv
-          aws s3 sync s3://${{ secrets.MINIO_BUCKET_NAME }}/ccache-data-${{ matrix.os }}-${{ matrix.name }} ${{ matrix.ccache-dir }}  --endpoint ${{ secrets.MINIO_ENDPOINT }} --cli-read-timeout 0
-        env:
-          AWS_ACCESS_KEY_ID: "${{ secrets.MINIO_ACCESS_KEY_ID }}"
-          AWS_SECRET_ACCESS_KEY: "${{ secrets.MINIO_SECRET_ACCESS_KEY }}"
-          AWS_DEFAULT_REGION: "${{ secrets.MINIO_REGION }}"
-
-      - name: Download ccache from s3
-        if: runner.os == 'Linux'
-        continue-on-error: true
-        run: |
-          aws s3 sync s3://${{ secrets.MINIO_BUCKET_NAME }}/ccache-data-${{ matrix.os }}-${{ matrix.name }} ${{ matrix.ccache-dir }}  --endpoint ${{ secrets.MINIO_ENDPOINT }} --cli-read-timeout 0
-        env:
-          AWS_ACCESS_KEY_ID: "${{ secrets.MINIO_ACCESS_KEY_ID }}"
-          AWS_SECRET_ACCESS_KEY: "${{ secrets.MINIO_SECRET_ACCESS_KEY }}"
-          AWS_DEFAULT_REGION: "${{ secrets.MINIO_REGION }}"
-
       - name: Install coreutils macos
         if: runner.os == 'macOS'
         run: |
@@ -491,28 +469,6 @@ jobs:
           asset_path: ./llama.tar.gz
           asset_name: llama-${{ needs.create-draft-release.outputs.version }}-bin-${{ matrix.os }}-${{ matrix.name }}.tar.gz
           asset_content_type: application/gzip
-
-      - name: Upload ccache to s3
-        continue-on-error: true
-        if: always() && runner.os == 'Windows'
-        run: |
-          Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
-          refreshenv
-          aws s3 sync ${{ matrix.ccache-dir }} s3://${{ secrets.MINIO_BUCKET_NAME }}/ccache-data-${{ matrix.os }}-${{ matrix.name }}  --endpoint ${{ secrets.MINIO_ENDPOINT }}
-        env:
-          AWS_ACCESS_KEY_ID: "${{ secrets.MINIO_ACCESS_KEY_ID }}"
-          AWS_SECRET_ACCESS_KEY: "${{ secrets.MINIO_SECRET_ACCESS_KEY }}"
-          AWS_DEFAULT_REGION: "${{ secrets.MINIO_REGION }}"
-
-      - name: Upload ccache to s3
-        continue-on-error: true
-        if: always() && runner.os == 'Linux'
-        run: |
-          aws s3 sync ${{ matrix.ccache-dir }} s3://${{ secrets.MINIO_BUCKET_NAME }}/ccache-data-${{ matrix.os }}-${{ matrix.name }}  --endpoint ${{ secrets.MINIO_ENDPOINT }}
-        env:
-          AWS_ACCESS_KEY_ID: "${{ secrets.MINIO_ACCESS_KEY_ID }}"
-          AWS_SECRET_ACCESS_KEY: "${{ secrets.MINIO_SECRET_ACCESS_KEY }}"
-          AWS_DEFAULT_REGION: "${{ secrets.MINIO_REGION }}"
 
       - name: Remove Keychain
         continue-on-error: true
