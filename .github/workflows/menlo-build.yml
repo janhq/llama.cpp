@@ -286,10 +286,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace our Makefile
-        run: |
-          cat menlo/Makefile | tee Makefile
-
       - name: use python for linux
         continue-on-error: true
         uses: actions/setup-python@v4
