@@ -2109,6 +2109,11 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor * 
             ggml_cuda_mul_mat_q(ctx, src0, src1, ids, dst);
             return;
         }
+
+        if (ggml_cuda_should_use_mmf(src0->type, cc, WARP_SIZE, src0->ne, src1->ne[2])) {
+            ggml_cuda_mul_mat_f(ctx, src0, src1, ids, dst);
+            return;
+        }
     }
 
     cudaStream_t stream = ctx.stream();
@@ -3393,10 +3398,6 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
             return op->type == GGML_TYPE_F32 && op->src[0]->type == GGML_TYPE_F32 && op->src[1]->type == GGML_TYPE_F32;
         case GGML_OP_GET_ROWS:
             {
-                // FIXME: https://github.com/ggml-org/llama.cpp/pull/15868
-                if (op->src[1]->ne[1]*op->src[1]->ne[2] > 65535) {
-                    return false;
-                }
                 switch (op->src[0]->type) {
                     case GGML_TYPE_F16:
                     case GGML_TYPE_F32:
