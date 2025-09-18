@@ -2,7 +2,7 @@ name: Mirror Releases to S3
 
 on:
   release:
-    types: [published]
+    types: [published, released, edited]
   workflow_dispatch:
     inputs:
       tag_name:
