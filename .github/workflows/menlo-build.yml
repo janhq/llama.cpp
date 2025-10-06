@@ -314,7 +314,7 @@ jobs:
           #   run-e2e: false
           #   ccache: false
           #   ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
-          - os: "windows"
+          - os: "win"
             name: "windows-common-cpus-x64-cpu-only"
             runs-on: "windows-cuda-12-0"
             cmake-flags: "-DLLAMA_CURL=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
@@ -322,7 +322,7 @@ jobs:
             vulkan: false
             ccache: true
             ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
-          - os: "windows"
+          - os: "win"
             name: "windows-common-cpus-x64-cuda-11-7"
             runs-on: "windows-cuda-11-7"
             cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
@@ -330,7 +330,7 @@ jobs:
             vulkan: false
             ccache: true
             ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
-          - os: "windows"
+          - os: "win"
             name: "windows-common-cpus-x64-cuda-12-0"
             runs-on: "windows-cuda-12-0"
             cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
@@ -338,7 +338,7 @@ jobs:
             vulkan: false
             ccache: true
             ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
-          - os: "windows"
+          - os: "win"
             name: "windows-common-cpus-vulkan-x64"
             runs-on: "windows-cuda-11-7"
             cmake-flags: "-DLLAMA_CURL=OFF -DGGML_VULKAN=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
