@@ -325,7 +325,7 @@ jobs:
           - os: "windows"
             name: "windows-common-cpus-x64-cuda-11-7"
             runs-on: "windows-cuda-11-7"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES='75;80;86;89;90' -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -333,7 +333,7 @@ jobs:
           - os: "windows"
             name: "windows-common-cpus-x64-cuda-12-0"
             runs-on: "windows-cuda-12-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES='75;80;86;89;90' -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
