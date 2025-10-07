@@ -24,9 +24,13 @@ on:
         "!README.md",
       ]
   workflow_dispatch:
+  
+  pull_request:
+    branches:
+      - dev
 
 env:
-  VULKAN_VERSION: 1.3.261.1
+  VULKAN_VERSION: 1.4.328.0
 
 jobs:
   create-draft-release:
@@ -56,12 +60,44 @@ jobs:
 
   build-and-test:
     runs-on: ${{ matrix.runs-on }}
-    needs: [create-draft-release]
+    # needs: [create-draft-release]
     timeout-minutes: 270
     strategy:
       fail-fast: false
       matrix:
         include:
+          - os: "linux"
+            name: "common_cpus-x64"
+            runs-on: "ubuntu-22-04-cuda-12-4"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: false
+            ccache: true
+            ccache-dir: "/home/runner/.ccache"
+          - os: "linux"
+            name: "cuda-11-common_cpus-x64"
+            runs-on: "ubuntu-22-04-cuda-11-7"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: false
+            ccache: true
+            ccache-dir: "/home/runner/.ccache"
+          - os: "linux"
+            name: "cuda-12-common_cpus-x64"
+            runs-on: "ubuntu-22-04-cuda-12-4"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: false
+            ccache: true
+            ccache-dir: "/home/runner/.ccache"
+          - os: "linux"
+            name: "vulkan-common_cpus-x64"
+            runs-on: "ubuntu-22-04"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_VULKAN=ON -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: true
+            ccache: true
+            ccache-dir: "/home/runner/.ccache"
           - os: "linux"
             name: "noavx-x64"
             runs-on: "ubuntu-20-04"
@@ -278,6 +314,38 @@ jobs:
             run-e2e: false
             ccache: false
             ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
+          - os: "win"
+            name: "common_cpus-x64"
+            runs-on: "windows-cuda-12-0"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: false
+            ccache: true
+            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
+          - os: "win"
+            name: "cuda-11-common_cpus-x64"
+            runs-on: "windows-cuda-11-7"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: false
+            ccache: true
+            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
+          - os: "win"
+            name: "cuda-12-common_cpus-x64"
+            runs-on: "windows-cuda-12-0"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: false
+            ccache: true
+            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
+          - os: "win"
+            name: "vulkan-common_cpus-x64"
+            runs-on: "windows-cuda-11-7"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_VULKAN=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: true
+            ccache: true
+            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
 
     steps:
       - name: Clone
@@ -335,7 +403,7 @@ jobs:
         if: ${{ matrix.vulkan && (matrix.os == 'win') }}
         continue-on-error: true
         run: |
-          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/VulkanSDK-${env:VULKAN_VERSION}-Installer.exe"
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
           & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
           Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
           Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
