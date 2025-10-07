@@ -81,9 +81,9 @@ RUN cd /home/runner && mkdir actions-runner && cd actions-runner \
 
 RUN chown -R runner:runner /home/runner && /home/runner/actions-runner/bin/installdependencies.sh
 
-ADD ./start.sh /home/runner/start.sh
+ADD --chown=runner:runner ./start.sh /home/runner/start.sh
 
-RUN chmod +x /home/runner/start.sh
+RUN chmod 755 /home/runner/start.sh
 
 # Add /usr/local/cuda-11.7/compat to LD_LIBRARY_PATH
 ENV LD_LIBRARY_PATH=/usr/local/cuda-11.7/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
