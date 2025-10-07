@@ -1,0 +1,238 @@
+name: Mirror Releases to S3
+
+on:
+  release:
+    types: [published, released, edited]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to mirror (e.g. v0.6.9). Required for manual runs."
+        required: true
+        type: string
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CDN_HOST: catalog.jan.ai                          # CDN domain pointing to S3 (CloudFront/Cloudflare/R2)
+      BUCKET: ${{ secrets.CATALOG_AWS_S3_BUCKET_NAME }}
+      AWS_REGION: ${{ secrets.CATALOG_AWS_REGION }}
+      MAX_HISTORY: "20"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Derive repo name safely for all events (release/workflow_dispatch)
+      - name: Derive REPO_NAME
+        id: repoinfo
+        run: |
+          echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> "$GITHUB_ENV"
+          echo "OWNER_NAME=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_ENV"
+          echo "Repo resolved to: ${GITHUB_REPOSITORY##*/}"
+
+      - name: Resolve release (release event or manual by tag)
+        id: rel
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const eventName = context.eventName;
+            const evInputs = (context.payload && context.payload.inputs) || {};
+            const tagInput = String(core.getInput('tag_name') || evInputs.tag_name || '').trim();
+
+            let release = null;
+
+            if (eventName === 'release' && context.payload.release) {
+              // Auto: use release payload
+              release = context.payload.release;
+            } else {
+              // Manual: require tag_name (no latest fallback)
+              if (!tagInput) {
+                core.setFailed('No tag_name provided. Please specify a release tag.');
+                return;
+              }
+              try {
+                const r = await github.rest.repos.getReleaseByTag({ owner, repo, tag: tagInput });
+                release = r.data;
+              } catch {
+                core.setFailed(`Release not found for tag '${tagInput}'.`);
+                return;
+              }
+            }
+
+            const tag = release.tag_name;
+            const name = release.name || tag;
+            const assets = (release.assets || []).map(a => ({
+              name: a.name,
+              size: a.size,
+              gh_url: a.browser_download_url
+            }));
+
+            core.info(`Resolved release: tag=${tag}, name=${name}, assets=${assets.length}`);
+            core.setOutput('tag', tag);
+            core.setOutput('name', name);
+            core.setOutput('published_at', release.published_at || new Date().toISOString());
+            core.setOutput('assets', JSON.stringify(assets));
+
+      - name: Prepare assets directory
+        run: mkdir -p out meta
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.CATALOG_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CATALOG_AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Download assets from GitHub
+        run: |
+          echo '${{ steps.rel.outputs.assets }}' \
+          | jq -r '.[].gh_url' \
+          | while read url; do
+              f="out/$(basename "$url")"
+              echo "Downloading $url -> $f"
+              curl -L --fail -o "$f" "$url"
+            done
+
+      - name: Fetch existing releases.json from S3 (if any)
+        env:
+          BUCKET: ${{ env.BUCKET }}
+          REPO_NAME: ${{ env.REPO_NAME }}
+        run: |
+          mkdir -p meta
+          KEY="$REPO_NAME/releases/releases.json"
+          if aws s3api head-object --bucket "$BUCKET" --key "$KEY" >/dev/null 2>&1; then
+            echo "Found $KEY in S3. Downloading..."
+            aws s3 cp "s3://$BUCKET/$KEY" meta/releases.json
+          else
+            echo "No $KEY in S3. Initializing with empty array."
+            echo '[]' > meta/releases.json
+          fi
+
+      - name: Build/merge releases.json (keep max N entries)
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+          NAME: ${{ steps.rel.outputs.name }}
+          PUBLISHED_AT: ${{ steps.rel.outputs.published_at }}
+          CDN_HOST: ${{ env.CDN_HOST }}
+          MAX_HISTORY: ${{ env.MAX_HISTORY }}
+          REPO_NAME: ${{ env.REPO_NAME }}
+        run: |
+          test -f meta/releases.json || echo '[]' > meta/releases.json
+          node - <<'NODE'
+          const fs = require('fs')
+          const path = require('path')
+
+          const TAG = process.env.TAG
+          const NAME = process.env.NAME || TAG
+          const PUBLISHED_AT = process.env.PUBLISHED_AT || new Date().toISOString()
+          const CDN = process.env.CDN_HOST
+          const MAX = parseInt(process.env.MAX_HISTORY || '20', 10)
+          const REPO = process.env.REPO_NAME
+
+          const files = fs.readdirSync('out')
+          const sizeOf = f => fs.statSync(path.join('out', f)).size
+
+          const entry = {
+            tag_name: TAG,
+            name: NAME,
+            published_at: PUBLISHED_AT,
+            assets: files.map(f => ({
+              name: f,
+              size: sizeOf(f),
+              // URL now includes repo prefix
+              browser_download_url: `https://${CDN}/${REPO}/releases/${TAG}/${f}`
+            }))
+          }
+
+          const p = 'meta/releases.json'
+          const arr = JSON.parse(fs.readFileSync(p, 'utf8'))
+
+          // Update or insert at the top
+          const idx = arr.findIndex(x => x.tag_name === TAG)
+          if (idx >= 0) arr.splice(idx, 1)
+          arr.unshift(entry)
+
+          // Trim history to MAX entries
+          while (arr.length > MAX) arr.pop()
+
+          fs.writeFileSync(p, JSON.stringify(arr, null, 2))
+          NODE
+
+      - name: Upload assets to S3 (repo-scoped path)
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+          BUCKET: ${{ env.BUCKET }}
+          REPO_NAME: ${{ env.REPO_NAME }}
+        run: |
+          DEST="s3://$BUCKET/$REPO_NAME/releases/$TAG/"
+          echo "Uploading assets for tag $TAG to $DEST"
+          aws s3 sync out "$DEST"
+
+      - name: Update 'latest' alias in S3 (repo-scoped)
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+          BUCKET: ${{ env.BUCKET }}
+          REPO_NAME: ${{ env.REPO_NAME }}
+        run: |
+          LATEST_PREFIX="s3://$BUCKET/$REPO_NAME/releases/latest/"
+          TAG_PREFIX="s3://$BUCKET/$REPO_NAME/releases/$TAG/"
+          echo "Updating 'latest' alias to point to tag $TAG"
+          aws s3 rm "$LATEST_PREFIX" --recursive || true
+          aws s3 sync "$TAG_PREFIX" "$LATEST_PREFIX"
+
+      - name: Upload releases.json (repo-scoped)
+        env:
+          BUCKET: ${{ env.BUCKET }}
+          REPO_NAME: ${{ env.REPO_NAME }}
+        run: |
+          KEY="$REPO_NAME/releases/releases.json"
+          echo "Uploading releases.json to s3://$BUCKET/$KEY"
+          aws s3 cp meta/releases.json "s3://$BUCKET/$KEY" \
+            --content-type 'application/json' --cache-control 'no-store'
+
+      - name: Cleanup old release folders (by last modified)
+        env:
+          BUCKET: ${{ env.BUCKET }}
+          REPO_NAME: ${{ env.REPO_NAME }}
+          KEEP: ${{ env.MAX_HISTORY }}
+        run: |
+          set -euo pipefail
+          KEEP="${KEEP:-20}"
+          PREFIX="$REPO_NAME/releases/"
+          echo "Cleaning up to keep only $KEEP newest folders under s3://$BUCKET/$PREFIX"
+
+          # List top-level release prefixes (folders), exclude 'latest/'
+          mapfile -t FOLDERS < <(aws s3api list-objects-v2 \
+            --bucket "$BUCKET" \
+            --prefix "$PREFIX" \
+            --delimiter '/' \
+            --query 'CommonPrefixes[].Prefix' \
+            --output text | tr '\t' '\n' | sed -e "s|^$PREFIX||" | grep -E '.+/' | grep -v '^latest/$')
+
+          if [ "${#FOLDERS[@]}" -le "$KEEP" ]; then
+            echo "Nothing to delete. Found ${#FOLDERS[@]} folders."
+            exit 0
+          fi
+
+          # Build list: "LastModified folder/" and sort descending by time
+          TIMED_LIST=$(for f in "${FOLDERS[@]}"; do
+            lm=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$PREFIX$f" \
+              --query "reverse(sort_by(Contents,&LastModified))[:1][0].LastModified" \
+              --output text)
+            if [ "$lm" != "None" ] && [ -n "$lm" ]; then
+              echo "$lm $f"
+            fi
+          done | sort -r)
+
+          count=0
+          while read -r lm f; do
+            [ -z "$f" ] && continue
+            count=$((count+1))
+            if [ "$count" -gt "$KEEP" ]; then
+              echo "Deleting folder s3://$BUCKET/$PREFIX$f (last modified $lm)"
+              aws s3 rm "s3://$BUCKET/$PREFIX$f" --recursive
+            fi
+          done <<< "$TIMED_LIST"
