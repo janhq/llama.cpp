@@ -3727,7 +3727,7 @@ struct server_context {
                             }
                         } else {
                             if (slot.n_prompt_tokens() >= slot.n_ctx) {
-                                send_error(slot, "the request exceeds the available context size. try increasing the context size or enable context shift", ERROR_TYPE_EXCEED_CONTEXT_SIZE);
+                                send_error(slot, "the request exceeds the available context size, try increasing it", ERROR_TYPE_EXCEED_CONTEXT_SIZE);
                                 slot.release();
                                 continue;
                             }
@@ -4226,7 +4226,7 @@ struct server_context {
                     metrics.on_prompt_eval(slot);
                 }
 
-                slot.t_token_generation = (t_current - slot.t_start_generation) / 1e3;
+                slot.t_token_generation = std::max<int64_t>(1, t_current - slot.t_start_generation) / 1e3;
 
                 completion_token_output result;
                 result.tok          = id;
@@ -4368,7 +4368,7 @@ struct server_context {
 
 static void log_server_request(const httplib::Request & req, const httplib::Response & res) {
     // skip GH copilot requests when using default port
-    if (req.path == "/v1/health" || req.path == "/v1/completions") {
+    if (req.path == "/v1/health") {
         return;
     }
 
@@ -4955,9 +4955,17 @@ int main(int argc, char ** argv) {
                 // Everything else, including multimodal completions.
                 inputs = tokenize_input_prompts(ctx_server.vocab, ctx_server.mctx, prompt, true, true);
             }
-
+            const size_t n_ctx_slot = ctx_server.n_ctx / ctx_server.params_base.n_parallel;
             tasks.reserve(inputs.size());
             for (size_t i = 0; i < inputs.size(); i++) {
+                auto n_prompt_tokens = inputs[i].size();
+                if (n_prompt_tokens >= n_ctx_slot) {
+                    json error_data = format_error_response("the request exceeds the available context size, try increasing it", ERROR_TYPE_EXCEED_CONTEXT_SIZE);
+                    error_data["n_prompt_tokens"] = n_prompt_tokens;
+                    error_data["n_ctx"] = n_ctx_slot;
+                    res_error(res, error_data);
+                    return;
+                }
                 server_task task = server_task(type);
 
                 task.id    = ctx_server.queue_tasks.get_new_id();
