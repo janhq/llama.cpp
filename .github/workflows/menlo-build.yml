@@ -348,7 +348,7 @@ jobs:
           - os: "win"
             name: "windows-arm64"
             runs-on: "windows-11-arm"
-            cmake-flags: "-DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=ON -DGGML_NATIVE=OFF DCMAKE_TOOLCHAIN_FILE=cmake/arm64-windows-llvm.cmake -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -G \"Ninja Multi-Config\" "
+            cmake-flags: "-DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=ON -DGGML_NATIVE=OFF -DCMAKE_TOOLCHAIN_FILE=cmake/arm64-windows-llvm.cmake -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
@@ -405,11 +405,11 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y build-essential vulkan-sdk
       
-      - name: Install Clang for Windows Arm64
-        if: ${{ matrix.os == 'win'}} && ${{ matrix.name == 'windows-arm64' }}
-        run: |
-          choco install llvm
-          clang --version
+      # - name: Install Clang for Windows Arm64
+      #   if: ${{ matrix.os == 'win'}} && ${{ matrix.name == 'windows-arm64' }}
+      #   run: |
+      #     choco install llvm
+      #     clang --version
 
       - name: Prepare Vulkan SDK Windows
         if: ${{ matrix.vulkan && (matrix.os == 'win') }}
