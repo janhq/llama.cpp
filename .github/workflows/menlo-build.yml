@@ -404,6 +404,12 @@ jobs:
           sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
           sudo apt-get update -y
           sudo apt-get install -y build-essential vulkan-sdk
+      
+      - name: Install Clang for Windows Arm64
+        if: ${{ matrix.os == 'win'}} && ${{ matrix.name == "windows-arm64" }}
+        run: |
+          choco install llvm
+          clang --version
 
       - name: Prepare Vulkan SDK Windows
         if: ${{ matrix.vulkan && (matrix.os == 'win') }}
