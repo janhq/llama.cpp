@@ -347,7 +347,7 @@ jobs:
           #   ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
           - os: "win"
             name: "windows-arm64"
-            runs-on: "windows-2025"
+            runs-on: "windows-11-arm"
             cmake-flags: "-DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=ON -DGGML_NATIVE=OFF -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
