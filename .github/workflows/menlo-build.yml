@@ -348,7 +348,7 @@ jobs:
           - os: "win"
             name: "windows-arm64"
             runs-on: "windows-2025"
-            cmake-flags: "-DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=ON -DGGML_NATIVE=OFF DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=ON -DGGML_NATIVE=OFF -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_TOOLCHAIN_FILE=cmake/arm64-windows-llvm.cmake -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
