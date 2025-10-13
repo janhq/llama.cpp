@@ -446,8 +446,14 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Add msbuild to PATH
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !(matrix.os == 'win' && matrix.name == 'windows-arm64')
         uses: ilammy/msvc-dev-cmd@v1.13.0
+      
+      - name: MSVC dev cmd (LLVM cross x64 ARM64)
+        if: matrix.os == 'win' && matrix.name == 'windows-arm64'
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+        with:
+          arch: amd64_arm64
 
       - name: Build
         id: build-and-test
