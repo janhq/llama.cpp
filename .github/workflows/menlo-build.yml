@@ -360,12 +360,6 @@ jobs:
       - name: Replace our Makefile
         run: |
           cat menlo/Makefile | tee Makefile
-      
-      - name: Show arch (debug)
-        shell: pwsh
-        run: |
-          echo "runner.arch = ${{ runner.arch }}"
-          echo "PROCESSOR_ARCHITECTURE = $Env:PROCESSOR_ARCHITECTURE"  # Windows-only extra check
 
       - name: use python for linux
         continue-on-error: true
