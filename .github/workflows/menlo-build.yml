@@ -342,7 +342,14 @@ jobs:
             vulkan: true
             ccache: true
             ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
-
+          - os: "win"
+            name: "arm64"
+            runs-on: "windows-11-arm"
+            cmake-flags: "-DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DCMAKE_TOOLCHAIN_FILE='cmake/arm64-windows-llvm.cmake'  -DGGML_OPENMP=OFF -DLLAMA_BUILD_SERVER=ON -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: false
+            ccache: true
+            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
     steps:
       - name: Clone
         id: checkout
@@ -353,6 +360,12 @@ jobs:
       - name: Replace our Makefile
         run: |
           cat menlo/Makefile | tee Makefile
+      
+      - name: Show arch (debug)
+        shell: pwsh
+        run: |
+          echo "runner.arch = ${{ runner.arch }}"
+          echo "PROCESSOR_ARCHITECTURE = $Env:PROCESSOR_ARCHITECTURE"  # Windows-only extra check
 
       - name: use python for linux
         continue-on-error: true
@@ -394,6 +407,12 @@ jobs:
           sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
           sudo apt-get update -y
           sudo apt-get install -y build-essential vulkan-sdk
+      
+      - name: Install Clang for Windows Arm64
+        if: ${{ matrix.os == 'win'}} && ${{ matrix.name == 'arm64' }}
+        run: |
+          choco install llvm
+          clang --version
 
       - name: Prepare Vulkan SDK Windows
         if: ${{ matrix.vulkan && (matrix.os == 'win') }}
@@ -424,8 +443,14 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Add msbuild to PATH
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !(matrix.os == 'win' && matrix.name == 'arm64')
         uses: ilammy/msvc-dev-cmd@v1.13.0
+      
+      - name: MSVC dev cmd (LLVM cross x64 ARM64)
+        if: matrix.os == 'win' && matrix.name == 'arm64'
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+        with:
+          arch: amd64_arm64
 
       - name: Build
         id: build-and-test
@@ -487,7 +512,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: llama-${{ matrix.os }}-${{ matrix.name }}
-          path: ./llama
+          path: |
+            ./llama
 
       - name: Calculate SHA512 Checksum (macOS)
         if: runner.os == 'macOS'
