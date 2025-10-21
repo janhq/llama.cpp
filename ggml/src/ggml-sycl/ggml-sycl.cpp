@@ -3698,6 +3698,18 @@ static bool ggml_sycl_compute_forward(ggml_backend_sycl_context & ctx, struct gg
                 case GGML_UNARY_OP_ELU:
                     ggml_sycl_elu(ctx, dst);
                     break;
+                case GGML_UNARY_OP_FLOOR:
+                    ggml_sycl_floor(ctx, dst);
+                    break;
+                case GGML_UNARY_OP_CEIL:
+                    ggml_sycl_ceil(ctx, dst);
+                    break;
+                case GGML_UNARY_OP_ROUND:
+                    ggml_sycl_round(ctx, dst);
+                    break;
+                case GGML_UNARY_OP_TRUNC:
+                    ggml_sycl_trunc(ctx, dst);
+                    break;
                 default:
                     return false;
             }
@@ -3731,6 +3743,9 @@ static bool ggml_sycl_compute_forward(ggml_backend_sycl_context & ctx, struct gg
             break;
         case GGML_OP_CONCAT:
             ggml_sycl_op_concat(ctx, dst);
+            break;
+        case GGML_OP_PAD_REFLECT_1D:
+            ggml_sycl_op_pad_reflect_1d(ctx,dst);
             break;
         case GGML_OP_UPSCALE:
             ggml_sycl_upscale(ctx, dst);
@@ -4262,6 +4277,10 @@ static bool ggml_backend_sycl_device_supports_op(ggml_backend_dev_t dev, const g
                 case GGML_UNARY_OP_SGN:
                 case GGML_UNARY_OP_ABS:
                 case GGML_UNARY_OP_ELU:
+                case GGML_UNARY_OP_FLOOR:
+                case GGML_UNARY_OP_CEIL:
+                case GGML_UNARY_OP_ROUND:
+                case GGML_UNARY_OP_TRUNC:
 #if defined (GGML_SYCL_F16)
                     return ggml_is_contiguous(op->src[0]) && (op->type == op->src[0]->type);
 #else
@@ -4439,6 +4458,8 @@ static bool ggml_backend_sycl_device_supports_op(ggml_backend_dev_t dev, const g
         case GGML_OP_DIV:
         case GGML_OP_REPEAT:
             return true;
+        case GGML_OP_PAD_REFLECT_1D:
+            return ggml_is_contiguous(op->src[0]) && op-> type == GGML_TYPE_F32 && op->src[0]->type == GGML_TYPE_F32;
         case GGML_OP_SQR:
         case GGML_OP_SQRT:
         case GGML_OP_SIN:
