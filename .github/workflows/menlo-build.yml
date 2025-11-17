@@ -92,7 +92,7 @@ jobs:
           - os: "linux"
             name: "cuda-13-common_cpus-x64"
             runs-on: "ubuntu-22-04-cuda-13-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES='61;70;75;80;86;89' -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES='70;75;80;86;89' -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
