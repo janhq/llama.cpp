@@ -87,6 +87,14 @@ jobs:
             ccache: true
             ccache-dir: "/home/runner/.ccache"
           - os: "linux"
+            name: "cuda-13-common_cpus-x64"
+            runs-on: "ubuntu-22-04-cuda-13-0"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES='75;80;86;87;89;120;121' -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            run-e2e: false
+            vulkan: false
+            ccache: true
+            ccache-dir: "/home/runner/.ccache"
+          - os: "linux"
             name: "vulkan-common_cpus-x64"
             runs-on: "ubuntu-22-04"
             cmake-flags: "-DLLAMA_CURL=OFF -DGGML_VULKAN=ON -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
@@ -581,6 +589,7 @@ jobs:
     steps:
       - name: Download cuda dependencies from s3 and create checksum
         run: |
+          wget https://minio.menlo.ai:9000/cicd/dist/cuda-dependencies/13.0/linux/cuda.tar.gz -O /tmp/cudart-llama-bin-linux-cu13.0-x64.tar.gz
           wget https://minio.menlo.ai:9000/cicd/dist/cuda-dependencies/12.0/linux/cuda.tar.gz -O /tmp/cudart-llama-bin-linux-cu12.0-x64.tar.gz
           wget https://minio.menlo.ai:9000/cicd/dist/cuda-dependencies/11.7/linux/cuda.tar.gz -O /tmp/cudart-llama-bin-linux-cu11.7-x64.tar.gz
           wget https://minio.menlo.ai:9000/cicd/dist/cuda-dependencies/12.0/windows/cuda.tar.gz -O /tmp/cudart-llama-bin-win-cu12.0-x64.tar.gz
@@ -600,6 +609,11 @@ jobs:
             (.sha512 | keys[]) as $key |
             "- url: llama-\($version)-\($key).tar.gz\n  sha512: >-\n    \($sha512[$key])\n  size: \($size[$key])"
           ' >> checksum.yml
+
+          echo "- url: cudart-llama-bin-linux-cu13.0-x64.tar.gz" >> checksum.yml
+          echo "  sha512: >-" >> checksum.yml
+          echo "    $(sha512sum /tmp/cudart-llama-bin-linux-cu13.0-x64.tar.gz | awk '{ print $1 }')" >> checksum.yml
+          echo "  size: $(stat -c%s /tmp/cudart-llama-bin-linux-cu13.0-x64.tar.gz)" >> checksum.yml
 
           echo "- url: cudart-llama-bin-linux-cu12.0-x64.tar.gz" >> checksum.yml
           echo "  sha512: >-" >> checksum.yml
@@ -632,6 +646,17 @@ jobs:
           asset_path: ./checksum.yml
           asset_name: checksum.yml
           asset_content_type: text/yaml
+
+      - name: upload cudart-llama-bin-linux-cu13.0-x64.tar.gz to Github Release
+        uses: actions/upload-release-asset@v1
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-draft-release.outputs.upload_url }}
+          asset_path: /tmp/cudart-llama-bin-linux-cu13.0-x64.tar.gz
+          asset_name: cudart-llama-bin-linux-cu13.0-x64.tar.gz
+          asset_content_type: application/gzip
 
       - name: upload cudart-llama-bin-linux-cu12.0-x64.tar.gz to Github Release
         uses: actions/upload-release-asset@v1
