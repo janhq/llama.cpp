@@ -347,7 +347,7 @@ jobs:
           - os: "win"
             name: "cuda-13-common_cpus-x64"
             runs-on: "windows-cuda-13-0"
-            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DCMAKE_CUDA_ARCHITECTURES='75;80;86;87;89;120;121' -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON  -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release' -GNinja"
             run-e2e: false
             vulkan: false
             ccache: true
