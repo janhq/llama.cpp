@@ -56,7 +56,7 @@ jobs:
 
   build-and-test:
     runs-on: ${{ matrix.runs-on }}
-    # needs: [create-draft-release]
+    needs: [create-draft-release]
     timeout-minutes: 270
     strategy:
       fail-fast: false
@@ -523,7 +523,7 @@ jobs:
         with:
           name: llama-${{ matrix.os }}-${{ matrix.name }}
           path: |
-            ./llama.tar.gz
+            ./llama
 
       - name: Calculate SHA512 Checksum (macOS)
         if: runner.os == 'macOS'
