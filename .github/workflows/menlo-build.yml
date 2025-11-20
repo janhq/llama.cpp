@@ -523,7 +523,7 @@ jobs:
         with:
           name: llama-${{ matrix.os }}-${{ matrix.name }}
           path: |
-            ./llama
+            ./llama.tar.gz
 
       - name: Calculate SHA512 Checksum (macOS)
         if: runner.os == 'macOS'
