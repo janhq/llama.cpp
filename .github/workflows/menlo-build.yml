@@ -447,10 +447,10 @@ jobs:
           p12-file-base64: ${{ secrets.CODE_SIGN_P12_BASE64 }}
           p12-password: ${{ secrets.CODE_SIGN_P12_PASSWORD }}
 
-      - uses: actions/setup-dotnet@v3
+      - uses: actions/setup-dotnet@v5
         if: runner.os == 'Windows'
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Add msbuild to PATH
         if: runner.os == 'Windows' && !(matrix.os == 'win' && matrix.name == 'arm64')
