@@ -45,7 +45,7 @@ jobs:
           git checkout -B master FETCH_HEAD
 
           # Push the updated master branch
-          git push origin master --force
+          git push origin master
 
           # Count all commits for tagging
           COMMIT_COUNT=$(git rev-list --count HEAD)
