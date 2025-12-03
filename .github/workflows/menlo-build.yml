@@ -494,7 +494,15 @@ jobs:
       - name: Install Quill for notarization
         if: runner.os == 'macOS'
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/quill/main/install.sh | sh -s -- -b /usr/local/bin
+          ARCH=$(uname -m)
+          echo "Detected architecture: $ARCH"
+
+          if [ "$ARCH" = "arm64" ]; then
+            INSTALL_DIR="/opt/homebrew/bin"   # Apple Silicon Macs
+          else
+            INSTALL_DIR="/usr/local/bin"      # Intel Macs
+          fi
+          curl -sSfL https://raw.githubusercontent.com/anchore/quill/main/install.sh | sh -s -- -b $INSTALL_DIR
           quill --version
 
       - name: Prepare notary key
