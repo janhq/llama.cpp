@@ -408,6 +408,13 @@ jobs:
           ccache -V
           rm -rf /tmp/ccache-4.10.2-linux-x86_64.tar.xz /tmp/ccache-4.10.2-linux-x86_64
 
+      - name: Set up homebrew path on macOS
+        if: runner.os == 'macOS'
+        run: |
+          # Add homebrew to path
+          echo "/opt/homebrew/bin" >> $GITHUB_PATH
+          echo "/opt/homebrew/sbin" >> $GITHUB_PATH
+
       - name: Install coreutils macos
         if: runner.os == 'macOS'
         run: |
