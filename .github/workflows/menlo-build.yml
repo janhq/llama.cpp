@@ -208,8 +208,8 @@ jobs:
             ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
           - os: "macos"
             name: "arm64"
-            runs-on: "macos-selfhosted-12-arm64"
-            cmake-flags: "-DCMAKE_BUILD_RPATH=\"@loader_path\" -DGGML_METAL_EMBED_LIBRARY=ON -DBUILD_SHARED_LIBS=ON"
+            runs-on: "macos-selfhosted-13-arm64"
+            cmake-flags: "-DCMAKE_BUILD_RPATH=\"@loader_path\" -DGGML_METAL_EMBED_LIBRARY=OFF -DBUILD_SHARED_LIBS=ON DGGML_METAL_USE_BF16=ON"
             run-e2e: false
             vulkan: false
             ccache: false
@@ -405,6 +405,13 @@ jobs:
           ccache -V
           rm -rf /tmp/ccache-4.10.2-linux-x86_64.tar.xz /tmp/ccache-4.10.2-linux-x86_64
 
+      - name: Set up homebrew path on macOS
+        if: runner.os == 'macOS'
+        run: |
+          # Add homebrew to path
+          echo "/opt/homebrew/bin" >> $GITHUB_PATH
+          echo "/opt/homebrew/sbin" >> $GITHUB_PATH
+
       - name: Install coreutils macos
         if: runner.os == 'macOS'
         run: |
@@ -484,7 +491,15 @@ jobs:
       - name: Install Quill for notarization
         if: runner.os == 'macOS'
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/quill/main/install.sh | sh -s -- -b /usr/local/bin
+          ARCH=$(uname -m)
+          echo "Detected architecture: $ARCH"
+
+          if [ "$ARCH" = "arm64" ]; then
+            INSTALL_DIR="/opt/homebrew/bin"   # Apple Silicon Macs
+          else
+            INSTALL_DIR="/usr/local/bin"      # Intel Macs
+          fi
+          curl -sSfL https://raw.githubusercontent.com/anchore/quill/main/install.sh | sh -s -- -b $INSTALL_DIR
           quill --version
 
       - name: Prepare notary key
