@@ -4,7 +4,6 @@
 #include "server-task.h"
 #include "server-queue.h"
 
-#include "arg.h"
 #include "common.h"
 #include "llama.h"
 #include "log.h"
@@ -16,7 +15,6 @@
 #include <cstddef>
 #include <cinttypes>
 #include <memory>
-#include <unordered_set>
 #include <filesystem>
 
 // fix problem with std::min and std::max
@@ -2617,10 +2615,6 @@ private:
             // on successful decode, restore the original batch size
             n_batch = llama_n_batch(ctx);
 
-            // technically, measuring the time here excludes the sampling time for the last batch
-            // but on the other hand, we don't want to do too many system calls to measure the time, so it's ok
-            const int64_t t_current = ggml_time_us();
-
             for (auto & slot : slots) {
                 // may need to copy state to other slots
                 if (slot.state == SLOT_STATE_DONE_PROMPT && slot.is_parent()) {
@@ -2687,6 +2681,9 @@ private:
 
                 common_sampler_accept(slot.smpl.get(), id, true);
 
+                // here we have synchronized the llama_context (due to the sampling above), so we can do time measurement
+                const int64_t t_current = ggml_time_us();
+
                 slot.n_decoded += 1;
 
                 if (slot.n_decoded == 1) {
@@ -2729,6 +2726,8 @@ private:
                 const auto ids = common_sampler_sample_and_accept_n(slot.smpl.get(), ctx, slot.i_batch_dft, slot.drafted);
                 slot.i_batch_dft.clear();
                 slot.drafted.clear();
+
+                const int64_t t_current = ggml_time_us();
 
                 slot.n_decoded += ids.size();
 
@@ -2927,9 +2926,14 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
             if (task.params.n_cmpl > 1) {
                 task.n_children = task.params.n_cmpl - 1;
                 for (size_t j = 0; j < task.n_children; j++) {
-                    server_task child = task.create_child(
-                        task.id,
-                        rd.get_new_id());
+                    server_task child = task.create_child(task.id, rd.get_new_id());
+
+                    // use different sampling seed for each child
+                    // note: https://github.com/ggml-org/llama.cpp/pull/18700#discussion_r2675115723
+                    if (child.params.sampling.seed != LLAMA_DEFAULT_SEED) {
+                        child.params.sampling.seed += j + 1;
+                    }
+
                     tasks.push_back(std::move(child));
                 }
             }
