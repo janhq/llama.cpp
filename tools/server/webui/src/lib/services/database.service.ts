@@ -17,58 +17,16 @@ class LlamacppDatabase extends Dexie {
 
 const db = new LlamacppDatabase();
 import { v4 as uuid } from 'uuid';
+import { MessageRole } from '$lib/enums';
 
-/**
- * DatabaseService - Stateless IndexedDB communication layer
- *
- * **Terminology - Chat vs Conversation:**
- * - **Chat**: The active interaction space with the Chat Completions API (ephemeral, runtime).
- * - **Conversation**: The persistent database entity storing all messages and metadata.
- *   This service handles raw database operations for conversations - the lowest layer
- *   in the persistence stack.
- *
- * This service provides a stateless data access layer built on IndexedDB using Dexie ORM.
- * It handles all low-level storage operations for conversations and messages with support
- * for complex branching and message threading. All methods are static - no instance state.
- *
- * **Architecture & Relationships (bottom to top):**
- * - **DatabaseService** (this class): Stateless IndexedDB operations
- *   - Lowest layer - direct Dexie/IndexedDB communication
- *   - Pure CRUD operations without business logic
- *   - Handles branching tree structure (parent-child relationships)
- *   - Provides transaction safety for multi-table operations
- *
- * - **ConversationsService**: Stateless business logic layer
- *   - Uses DatabaseService for all persistence operations
- *   - Adds import/export, navigation, and higher-level operations
- *
- * - **conversationsStore**: Reactive state management for conversations
- *   - Uses ConversationsService for database operations
- *   - Manages conversation list, active conversation, and messages in memory
- *
- * - **chatStore**: Active AI interaction management
- *   - Uses conversationsStore for conversation context
- *   - Directly uses DatabaseService for message CRUD during streaming
- *
- * **Key Features:**
- * - **Conversation CRUD**: Create, read, update, delete conversations
- * - **Message CRUD**: Add, update, delete messages with branching support
- * - **Branch Operations**: Create branches, find descendants, cascade deletions
- * - **Transaction Safety**: Atomic operations for data consistency
- *
- * **Database Schema:**
- * - `conversations`: id, lastModified, currNode, name
- * - `messages`: id, convId, type, role, timestamp, parent, children
- *
- * **Branching Model:**
- * Messages form a tree structure where each message can have multiple children,
- * enabling conversation branching and alternative response paths. The conversation's
- * `currNode` tracks the currently active branch endpoint.
- */
 export class DatabaseService {
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Conversations
-	// ─────────────────────────────────────────────────────────────────────────────
+	/**
+	 *
+	 *
+	 * Conversations
+	 *
+	 *
+	 */
 
 	/**
 	 * Creates a new conversation.
@@ -88,9 +46,13 @@ export class DatabaseService {
 		return conversation;
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Messages
-	// ─────────────────────────────────────────────────────────────────────────────
+	/**
+	 *
+	 *
+	 * Messages
+	 *
+	 *
+	 */
 
 	/**
 	 * Creates a new message branch by adding a message and updating parent/child relationships.
@@ -154,10 +116,9 @@ export class DatabaseService {
 			convId,
 			type: 'root',
 			timestamp: Date.now(),
-			role: 'system',
+			role: MessageRole.SYSTEM,
 			content: '',
 			parent: null,
-			thinking: '',
 			toolCalls: '',
 			children: []
 		};
@@ -188,12 +149,11 @@ export class DatabaseService {
 		const systemMessage: DatabaseMessage = {
 			id: uuid(),
 			convId,
-			type: 'system',
+			type: MessageRole.SYSTEM,
 			timestamp: Date.now(),
-			role: 'system',
+			role: MessageRole.SYSTEM,
 			content: trimmedPrompt,
 			parent: parentId,
-			thinking: '',
 			children: []
 		};
 
@@ -328,9 +288,13 @@ export class DatabaseService {
 		});
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Navigation
-	// ─────────────────────────────────────────────────────────────────────────────
+	/**
+	 *
+	 *
+	 * Navigation
+	 *
+	 *
+	 */
 
 	/**
 	 * Updates the conversation's current node (active branch).
@@ -359,9 +323,13 @@ export class DatabaseService {
 		await db.messages.update(id, updates);
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Import
-	// ─────────────────────────────────────────────────────────────────────────────
+	/**
+	 *
+	 *
+	 * Import
+	 *
+	 *
+	 */
 
 	/**
 	 * Imports multiple conversations and their messages.

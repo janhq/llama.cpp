@@ -11,53 +11,97 @@
 	import type { Root as MdastRoot } from 'mdast';
 	import { browser } from '$app/environment';
 	import { onDestroy, tick } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { rehypeRestoreTableHtml } from '$lib/markdown/table-html-restorer';
 	import { rehypeEnhanceLinks } from '$lib/markdown/enhance-links';
 	import { rehypeEnhanceCodeBlocks } from '$lib/markdown/enhance-code-blocks';
+	import { rehypeResolveAttachmentImages } from '$lib/markdown/resolve-attachment-images';
 	import { remarkLiteralHtml } from '$lib/markdown/literal-html';
-	import { copyCodeToClipboard, preprocessLaTeX } from '$lib/utils';
+	import { copyCodeToClipboard, preprocessLaTeX, getImageErrorFallbackHtml } from '$lib/utils';
+	import {
+		IMAGE_NOT_ERROR_BOUND_SELECTOR,
+		DATA_ERROR_BOUND_ATTR,
+		DATA_ERROR_HANDLED_ATTR,
+		BOOL_TRUE_STRING
+	} from '$lib/constants/markdown';
+	import { UrlPrefix } from '$lib/enums';
+	import { FileTypeText } from '$lib/enums/files';
+	import {
+		highlightCode,
+		detectIncompleteCodeBlock,
+		type IncompleteCodeBlock
+	} from '$lib/utils/code';
 	import '$styles/katex-custom.scss';
 	import githubDarkCss from 'highlight.js/styles/github-dark.css?inline';
 	import githubLightCss from 'highlight.js/styles/github.css?inline';
 	import { mode } from 'mode-watcher';
-	import CodePreviewDialog from './CodePreviewDialog.svelte';
+	import { ActionIconsCodeBlock, DialogCodePreview } from '$lib/components/app';
+	import { createAutoScrollController } from '$lib/hooks/use-auto-scroll.svelte';
+	import type { DatabaseMessageExtra } from '$lib/types/database';
 
 	interface Props {
+		attachments?: DatabaseMessageExtra[];
 		content: string;
 		class?: string;
+		disableMath?: boolean;
 	}
 
 	interface MarkdownBlock {
 		id: string;
 		html: string;
+		contentHash?: string;
 	}
 
-	let { content, class: className = '' }: Props = $props();
+	let { content, attachments, class: className = '', disableMath = false }: Props = $props();
 
 	let containerRef = $state<HTMLDivElement>();
 	let renderedBlocks = $state<MarkdownBlock[]>([]);
 	let unstableBlockHtml = $state('');
+	let incompleteCodeBlock = $state<IncompleteCodeBlock | null>(null);
 	let previewDialogOpen = $state(false);
 	let previewCode = $state('');
 	let previewLanguage = $state('text');
+	let streamingCodeScrollContainer = $state<HTMLDivElement>();
+
+	// Auto-scroll controller for streaming code block content
+	const streamingAutoScroll = createAutoScrollController();
 
 	let pendingMarkdown: string | null = null;
 	let isProcessing = false;
 
+	// Per-instance transform cache, avoids re-transforming stable blocks during streaming
+	// Garbage collected when component is destroyed (on conversation change)
+	const transformCache = new SvelteMap<string, string>();
+	let previousContent = '';
+
 	const themeStyleId = `highlight-theme-${(window.idxThemeStyle = (window.idxThemeStyle ?? 0) + 1)}`;
 
 	let processor = $derived(() => {
-		return remark()
-			.use(remarkGfm) // GitHub Flavored Markdown
-			.use(remarkMath) // Parse $inline$ and $$block$$ math
+		void attachments;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		let proc: any = remark().use(remarkGfm); // GitHub Flavored Markdown
+
+		if (!disableMath) {
+			proc = proc.use(remarkMath); // Parse $inline$ and $$block$$ math
+		}
+
+		proc = proc
 			.use(remarkBreaks) // Convert line breaks to <br>
 			.use(remarkLiteralHtml) // Treat raw HTML as literal text with preserved indentation
-			.use(remarkRehype) // Convert Markdown AST to rehype
-			.use(rehypeKatex) // Render math using KaTeX
-			.use(rehypeHighlight) // Add syntax highlighting
+			.use(remarkRehype); // Convert Markdown AST to rehype
+
+		if (!disableMath) {
+			proc = proc.use(rehypeKatex); // Render math using KaTeX
+		}
+
+		return proc
+			.use(rehypeHighlight, {
+				aliases: { [FileTypeText.XML]: [FileTypeText.SVELTE, FileTypeText.VUE] }
+			}) // Add syntax highlighting
 			.use(rehypeRestoreTableHtml) // Restore limited HTML (e.g., <br>, <ul>) inside Markdown tables
 			.use(rehypeEnhanceLinks) // Add target="_blank" to links
 			.use(rehypeEnhanceCodeBlocks) // Wrap code blocks with header and actions
+			.use(rehypeResolveAttachmentImages, { attachments })
 			.use(rehypeStringify, { allowDangerousHtml: true }); // Convert to HTML string
 	});
 
@@ -155,6 +199,61 @@
 	}
 
 	/**
+	 * Generates a hash for MDAST node based on its position.
+	 * Used for cache lookup during incremental rendering.
+	 */
+	function getMdastNodeHash(node: unknown, index: number): string {
+		const n = node as {
+			type?: string;
+			position?: { start?: { offset?: number }; end?: { offset?: number } };
+		};
+
+		if (n.position?.start?.offset != null && n.position?.end?.offset != null) {
+			return `${n.type}-${n.position.start.offset}-${n.position.end.offset}`;
+		}
+
+		return `${n.type}-idx${index}`;
+	}
+
+	/**
+	 * Check if we're in append-only mode (streaming).
+	 */
+	function isAppendMode(newContent: string): boolean {
+		return previousContent.length > 0 && newContent.startsWith(previousContent);
+	}
+
+	/**
+	 * Transforms a single MDAST node to HTML string with caching.
+	 * Runs the full remark/rehype plugin pipeline (GFM, math, syntax highlighting, etc.)
+	 * on an isolated single-node tree, then stringifies the resulting HAST to HTML.
+	 * Results are cached by node position hash for streaming performance.
+	 * @param processorInstance - The remark/rehype processor instance
+	 * @param node - The MDAST node to transform
+	 * @param index - Node index for hash fallback
+	 * @returns Object containing the HTML string and cache hash
+	 */
+	async function transformMdastNode(
+		processorInstance: ReturnType<typeof processor>,
+		node: unknown,
+		index: number
+	): Promise<{ html: string; hash: string }> {
+		const hash = getMdastNodeHash(node, index);
+
+		const cached = transformCache.get(hash);
+		if (cached) {
+			return { html: cached, hash };
+		}
+
+		const singleNodeRoot = { type: 'root', children: [node] };
+		const transformedRoot = (await processorInstance.run(singleNodeRoot as MdastRoot)) as HastRoot;
+		const html = processorInstance.stringify(transformedRoot);
+
+		transformCache.set(hash, html);
+
+		return { html, hash };
+	}
+
+	/**
 	 * Handles click events on copy buttons within code blocks.
 	 * Copies the raw code content to the clipboard.
 	 * @param event - The click event from the copy button
@@ -225,50 +324,131 @@
 	/**
 	 * Processes markdown content into stable and unstable HTML blocks.
 	 * Uses incremental rendering: stable blocks are cached, unstable block is re-rendered.
+	 * Incomplete code blocks are rendered using SyntaxHighlightedCode to maintain interactivity.
 	 * @param markdown - The raw markdown string to process
 	 */
 	async function processMarkdown(markdown: string) {
+		// Early exit if content unchanged (can happen with rapid coalescing)
+		if (markdown === previousContent) {
+			return;
+		}
+
 		if (!markdown) {
 			renderedBlocks = [];
 			unstableBlockHtml = '';
+			incompleteCodeBlock = null;
+			previousContent = '';
 			return;
 		}
+
+		// Check for incomplete code block at the end of content
+		const incompleteBlock = detectIncompleteCodeBlock(markdown);
+
+		if (incompleteBlock) {
+			// Process only the prefix (content before the incomplete code block)
+			const prefixMarkdown = markdown.slice(0, incompleteBlock.openingIndex);
+
+			if (prefixMarkdown.trim()) {
+				const normalizedPrefix = preprocessLaTeX(prefixMarkdown);
+				const processorInstance = processor();
+				const ast = processorInstance.parse(normalizedPrefix) as MdastRoot;
+				const mdastChildren = (ast as { children?: unknown[] }).children ?? [];
+				const nextBlocks: MarkdownBlock[] = [];
+
+				// Check if we're in append mode for cache reuse
+				const appendMode = isAppendMode(prefixMarkdown);
+				const previousBlockCount = appendMode ? renderedBlocks.length : 0;
+
+				// All prefix blocks are now stable since code block is separate
+				for (let index = 0; index < mdastChildren.length; index++) {
+					const child = mdastChildren[index];
+
+					// In append mode, reuse previous blocks if unchanged
+					if (appendMode && index < previousBlockCount) {
+						const prevBlock = renderedBlocks[index];
+						const currentHash = getMdastNodeHash(child, index);
+
+						if (prevBlock?.contentHash === currentHash) {
+							nextBlocks.push(prevBlock);
+
+							continue;
+						}
+					}
+
+					// Transform this block (with caching)
+					const { html, hash } = await transformMdastNode(processorInstance, child, index);
+					const id = getHastNodeId(
+						{ position: (child as { position?: unknown }).position } as HastRootContent,
+						index
+					);
+
+					nextBlocks.push({ id, html, contentHash: hash });
+				}
+
+				renderedBlocks = nextBlocks;
+			} else {
+				renderedBlocks = [];
+			}
+
+			previousContent = prefixMarkdown;
+			unstableBlockHtml = '';
+			incompleteCodeBlock = incompleteBlock;
+
+			return;
+		}
+
+		// No incomplete code block - use standard processing
+		incompleteCodeBlock = null;
 
 		const normalized = preprocessLaTeX(markdown);
 		const processorInstance = processor();
 		const ast = processorInstance.parse(normalized) as MdastRoot;
-		const processedRoot = (await processorInstance.run(ast)) as HastRoot;
-		const processedChildren = processedRoot.children ?? [];
-		const stableCount = Math.max(processedChildren.length - 1, 0);
+		const mdastChildren = (ast as { children?: unknown[] }).children ?? [];
+		const stableCount = Math.max(mdastChildren.length - 1, 0);
 		const nextBlocks: MarkdownBlock[] = [];
 
-		for (let index = 0; index < stableCount; index++) {
-			const hastChild = processedChildren[index];
-			const id = getHastNodeId(hastChild, index);
-			const existing = renderedBlocks[index];
+		// Check if we're in append mode for cache reuse
+		const appendMode = isAppendMode(markdown);
+		const previousBlockCount = appendMode ? renderedBlocks.length : 0;
 
-			if (existing && existing.id === id) {
-				nextBlocks.push(existing);
-				continue;
+		for (let index = 0; index < stableCount; index++) {
+			const child = mdastChildren[index];
+
+			// In append mode, reuse previous blocks if unchanged
+			if (appendMode && index < previousBlockCount) {
+				const prevBlock = renderedBlocks[index];
+				const currentHash = getMdastNodeHash(child, index);
+				if (prevBlock?.contentHash === currentHash) {
+					nextBlocks.push(prevBlock);
+
+					continue;
+				}
 			}
 
-			const html = stringifyProcessedNode(
-				processorInstance,
-				processedRoot,
-				processedChildren[index]
+			// Transform this block (with caching)
+			const { html, hash } = await transformMdastNode(processorInstance, child, index);
+			const id = getHastNodeId(
+				{ position: (child as { position?: unknown }).position } as HastRootContent,
+				index
 			);
 
-			nextBlocks.push({ id, html });
+			nextBlocks.push({ id, html, contentHash: hash });
 		}
 
 		let unstableHtml = '';
 
-		if (processedChildren.length > stableCount) {
-			const unstableChild = processedChildren[stableCount];
-			unstableHtml = stringifyProcessedNode(processorInstance, processedRoot, unstableChild);
+		if (mdastChildren.length > stableCount) {
+			const unstableChild = mdastChildren[stableCount];
+			const singleNodeRoot = { type: 'root', children: [unstableChild] };
+			const transformedRoot = (await processorInstance.run(
+				singleNodeRoot as MdastRoot
+			)) as HastRoot;
+
+			unstableHtml = processorInstance.stringify(transformedRoot);
 		}
 
 		renderedBlocks = nextBlocks;
+		previousContent = markdown;
 		await tick(); // Force DOM sync before updating unstable HTML block
 		unstableBlockHtml = unstableHtml;
 	}
@@ -299,29 +479,50 @@
 	}
 
 	/**
-	 * Converts a single HAST node to an enhanced HTML string.
-	 * Applies link and code block enhancements to the output.
-	 * @param processorInstance - The remark/rehype processor instance
-	 * @param processedRoot - The full processed HAST root (for context)
-	 * @param child - The specific HAST child node to stringify
-	 * @returns Enhanced HTML string representation of the node
+	 * Attaches error handlers to images to show fallback UI when loading fails (e.g., CORS).
+	 * Uses data-error-bound attribute to prevent duplicate bindings.
 	 */
-	function stringifyProcessedNode(
-		processorInstance: ReturnType<typeof processor>,
-		processedRoot: HastRoot,
-		child: unknown
-	) {
-		const root: HastRoot = {
-			...(processedRoot as HastRoot),
-			children: [child as never]
-		};
+	function setupImageErrorHandlers() {
+		if (!containerRef) return;
 
-		return processorInstance.stringify(root);
+		const images = containerRef.querySelectorAll<HTMLImageElement>(IMAGE_NOT_ERROR_BOUND_SELECTOR);
+
+		for (const img of images) {
+			img.dataset[DATA_ERROR_BOUND_ATTR] = BOOL_TRUE_STRING;
+			img.addEventListener('error', handleImageError);
+		}
+	}
+
+	/**
+	 * Handles image load errors by replacing the image with a fallback UI.
+	 * Shows a placeholder with a link to open the image in a new tab.
+	 */
+	function handleImageError(event: Event) {
+		const img = event.target as HTMLImageElement;
+		if (!img || !img.src) return;
+
+		// Don't handle data URLs or already-handled images
+		if (
+			img.src.startsWith(UrlPrefix.DATA) ||
+			img.dataset[DATA_ERROR_HANDLED_ATTR] === BOOL_TRUE_STRING
+		)
+			return;
+		img.dataset[DATA_ERROR_HANDLED_ATTR] = BOOL_TRUE_STRING;
+
+		const src = img.src;
+		// Create fallback element
+		const fallback = document.createElement('div');
+		fallback.className = 'image-load-error';
+		fallback.innerHTML = getImageErrorFallbackHtml(src);
+
+		// Replace image with fallback
+		img.parentNode?.replaceChild(fallback, img);
 	}
 
 	/**
 	 * Queues markdown for processing with coalescing support.
 	 * Only processes the latest markdown when multiple updates arrive quickly.
+	 * Uses requestAnimationFrame to yield to browser paint between batches.
 	 * @param markdown - The markdown content to render
 	 */
 	async function updateRenderedBlocks(markdown: string) {
@@ -339,6 +540,12 @@
 				pendingMarkdown = null;
 
 				await processMarkdown(nextMarkdown);
+
+				// Yield to browser for paint. During this, new chunks coalesce
+				// into pendingMarkdown, so we always render the latest state.
+				if (pendingMarkdown !== null) {
+					await new Promise((resolve) => requestAnimationFrame(resolve));
+				}
 			}
 		} catch (error) {
 			console.error('Failed to process markdown:', error);
@@ -366,12 +573,23 @@
 
 		if ((hasRenderedBlocks || hasUnstableBlock) && containerRef) {
 			setupCodeBlockActions();
+			setupImageErrorHandlers();
 		}
+	});
+
+	// Auto-scroll for streaming code block
+	$effect(() => {
+		streamingAutoScroll.setContainer(streamingCodeScrollContainer);
+	});
+
+	$effect(() => {
+		streamingAutoScroll.updateInterval(incompleteCodeBlock !== null);
 	});
 
 	onDestroy(() => {
 		cleanupEventListeners();
 		cleanupHighlightTheme();
+		streamingAutoScroll.destroy();
 	});
 </script>
 
@@ -389,9 +607,40 @@
 			{@html unstableBlockHtml}
 		</div>
 	{/if}
+
+	{#if incompleteCodeBlock}
+		<div class="code-block-wrapper streaming-code-block relative">
+			<div class="code-block-header">
+				<span class="code-language">{incompleteCodeBlock.language || 'text'}</span>
+				<ActionIconsCodeBlock
+					code={incompleteCodeBlock.code}
+					language={incompleteCodeBlock.language || 'text'}
+					disabled={true}
+					onPreview={(code: string, lang: string) => {
+						previewCode = code;
+						previewLanguage = lang;
+						previewDialogOpen = true;
+					}}
+				/>
+			</div>
+			<div
+				bind:this={streamingCodeScrollContainer}
+				class="streaming-code-scroll-container"
+				onscroll={() => streamingAutoScroll.handleScroll()}
+			>
+				<pre class="streaming-code-pre"><code
+						class="hljs language-{incompleteCodeBlock.language || 'text'}"
+						>{@html highlightCode(
+							incompleteCodeBlock.code,
+							incompleteCodeBlock.language || 'text'
+						)}</code
+					></pre>
+			</div>
+		</div>
+	{/if}
 </div>
 
-<CodePreviewDialog
+<DialogCodePreview
 	open={previewDialogOpen}
 	code={previewCode}
 	language={previewLanguage}
@@ -404,9 +653,20 @@
 		display: contents;
 	}
 
+	/* Streaming code block uses .code-block-wrapper styles */
+	.streaming-code-block .streaming-code-pre {
+		background: transparent;
+		padding: 0.5rem;
+		margin: 0;
+		overflow-x: visible;
+		border-radius: 0;
+		border: none;
+		font-size: 0.875rem;
+	}
+
 	/* Base typography styles */
-	div :global(p:not(:last-child)) {
-		margin-bottom: 1rem;
+	div :global(p) {
+		margin-block: 1rem;
 		line-height: 1.75;
 	}
 
@@ -480,12 +740,35 @@
 			'Liberation Mono', Menlo, monospace;
 	}
 
+	div :global(pre) {
+		display: inline;
+		margin: 0 !important;
+		overflow: hidden !important;
+		background: var(--muted);
+		overflow-x: auto;
+		border-radius: 1rem;
+		border: none;
+		line-height: 1 !important;
+	}
+
+	div :global(pre code) {
+		padding: 0 !important;
+		display: inline !important;
+	}
+
+	div :global(code) {
+		background: transparent;
+		color: var(--code-foreground);
+	}
+
 	/* Links */
 	div :global(a) {
 		color: var(--primary);
 		text-decoration: underline;
 		text-underline-offset: 2px;
 		transition: color 0.2s ease;
+		overflow-wrap: anywhere;
+		word-break: break-all;
 	}
 
 	div :global(a:hover) {
@@ -609,22 +892,42 @@
 		margin: 1.5rem 0;
 		border-radius: 0.75rem;
 		overflow: hidden;
-		border: 1px solid var(--border);
+		border: 1px solid color-mix(in oklch, var(--border) 30%, transparent);
 		background: var(--code-background);
+		box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+		min-height: var(--min-message-height);
+		max-height: var(--max-message-height);
+	}
+
+	:global(.dark) div :global(.code-block-wrapper) {
+		border-color: color-mix(in oklch, var(--border) 20%, transparent);
+	}
+
+	/* Scroll container for code blocks (both streaming and completed) */
+	div :global(.code-block-scroll-container),
+	.streaming-code-scroll-container {
+		min-height: var(--min-message-height);
+		max-height: var(--max-message-height);
+		overflow-y: auto;
+		overflow-x: auto;
+		padding: 3rem 1rem 1rem;
+		line-height: 1.3;
 	}
 
 	div :global(.code-block-header) {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 0.5rem 1rem;
-		background: hsl(var(--muted) / 0.5);
-		border-bottom: 1px solid var(--border);
+		padding: 0.5rem 1rem 0;
 		font-size: 0.875rem;
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
 	}
 
 	div :global(.code-language) {
-		color: var(--code-foreground);
+		color: var(--color-foreground);
 		font-weight: 500;
 		font-family:
 			ui-monospace, SFMono-Regular, 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas,
@@ -664,26 +967,10 @@
 
 	div :global(.code-block-wrapper pre) {
 		background: transparent;
-		padding: 1rem;
 		margin: 0;
-		overflow-x: auto;
 		border-radius: 0;
 		border: none;
 		font-size: 0.875rem;
-		line-height: 1.5;
-	}
-
-	div :global(pre) {
-		background: var(--muted);
-		margin: 1.5rem 0;
-		overflow-x: auto;
-		border-radius: 1rem;
-		border: none;
-	}
-
-	div :global(code) {
-		background: transparent;
-		color: var(--code-foreground);
 	}
 
 	/* Mentions and hashtags */
@@ -726,7 +1013,7 @@
 	/* Disable hover effects when rendering user messages */
 	.markdown-user-content :global(a),
 	.markdown-user-content :global(a:hover) {
-		color: var(--primary-foreground);
+		color: inherit;
 	}
 
 	.markdown-user-content :global(table:hover) {
@@ -866,5 +1153,54 @@
 		div :global(blockquote:hover) {
 			background: var(--muted);
 		}
+	}
+
+	/* Image load error fallback */
+	div :global(.image-load-error) {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin: 1.5rem 0;
+		padding: 1.5rem;
+		border-radius: 0.5rem;
+		background: var(--muted);
+		border: 1px dashed var(--border);
+	}
+
+	div :global(.image-error-content) {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.75rem;
+		color: var(--muted-foreground);
+		text-align: center;
+	}
+
+	div :global(.image-error-content svg) {
+		opacity: 0.5;
+	}
+
+	div :global(.image-error-text) {
+		font-size: 0.875rem;
+	}
+
+	div :global(.image-error-link) {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.5rem 1rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: var(--primary);
+		background: var(--background);
+		border: 1px solid var(--border);
+		border-radius: 0.375rem;
+		text-decoration: none;
+		transition: all 0.2s ease;
+	}
+
+	div :global(.image-error-link:hover) {
+		background: var(--muted);
+		border-color: var(--primary);
 	}
 </style>
