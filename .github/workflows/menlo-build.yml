@@ -596,6 +596,7 @@ jobs:
     runs-on: ubuntu-22.04
     container: rocm/dev-ubuntu-22.04:6.2
     needs: [create-draft-release]
+    continue-on-error: true
     timeout-minutes: 270
     permissions:
       contents: write
@@ -665,6 +666,131 @@ jobs:
           asset_name: llama-${{ needs.create-draft-release.outputs.version }}-bin-linux-hip-x64.tar.gz
           asset_content_type: application/gzip
 
+  build-hip-windows:
+    runs-on: windows-2022
+    needs: [create-draft-release]
+    continue-on-error: true
+    timeout-minutes: 270
+    permissions:
+      contents: write
+    env:
+      HIPSDK_INSTALLER_VERSION: "26.Q1"
+    outputs:
+      sha512: ${{ steps.checksum.outputs.sha512 }}
+      size: ${{ steps.checksum.outputs.size }}
+    steps:
+      - name: Clone
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Replace our Makefile
+        run: cat menlo/Makefile | tee Makefile
+
+      - name: Install tools
+        run: |
+          choco install ccache make -y
+
+      - name: Cache ROCm Installation
+        id: cache-rocm
+        uses: actions/cache@v5
+        with:
+          path: C:\Program Files\AMD\ROCm
+          key: rocm-${{ env.HIPSDK_INSTALLER_VERSION }}-${{ runner.os }}
+
+      - name: Install ROCm
+        if: steps.cache-rocm.outputs.cache-hit != 'true'
+        run: |
+          $ErrorActionPreference = "Stop"
+          write-host "Downloading AMD HIP SDK Installer"
+          Invoke-WebRequest -Uri "https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-${{ env.HIPSDK_INSTALLER_VERSION }}-Win11-For-HIP.exe" -OutFile "${env:RUNNER_TEMP}\rocm-install.exe"
+          write-host "Installing AMD HIP SDK"
+          $proc = Start-Process "${env:RUNNER_TEMP}\rocm-install.exe" -ArgumentList '-install' -NoNewWindow -PassThru
+          $completed = $proc.WaitForExit(600000)
+          if (-not $completed) {
+              Write-Error "ROCm installation timed out after 10 minutes"
+              $proc.Kill()
+              exit 1
+          }
+          if ($proc.ExitCode -ne 0) {
+              Write-Error "ROCm installation failed with exit code $($proc.ExitCode)"
+              exit 1
+          }
+          write-host "Completed AMD HIP SDK installation"
+
+      - name: Verify ROCm
+        run: |
+          $clangPath = Resolve-Path 'C:\Program Files\AMD\ROCm\*\bin\clang.exe'
+          if (-not $clangPath) {
+              Write-Error "Could not find ROCm clang"
+              exit 1
+          }
+          & $clangPath.FullName --version
+
+      - name: Build
+        run: |
+          $env:HIP_PATH=$(Resolve-Path 'C:\Program Files\AMD\ROCm\*\bin\clang.exe' | split-path | split-path)
+          $env:CMAKE_PREFIX_PATH="${env:HIP_PATH}"
+          cmake -G "Unix Makefiles" -B build -S . `
+            -DCMAKE_C_COMPILER="${env:HIP_PATH}\bin\clang.exe" `
+            -DCMAKE_CXX_COMPILER="${env:HIP_PATH}\bin\clang++.exe" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DGPU_TARGETS="gfx906;gfx908;gfx90a;gfx1030;gfx1100;gfx1101;gfx1102" `
+            -DGGML_HIP=ON `
+            -DGGML_NATIVE=OFF `
+            -DBUILD_SHARED_LIBS=OFF `
+            -DLLAMA_CURL=OFF `
+            -DLLAMA_BUILD_TESTS=OFF
+          cmake --build build --config Release -j ${env:NUMBER_OF_PROCESSORS} --target llama-server
+          md "build\bin\rocblas\library\" -Force
+          md "build\bin\hipblaslt\library" -Force
+          cp "${env:HIP_PATH}\bin\libhipblas.dll" "build\bin\"
+          cp "${env:HIP_PATH}\bin\libhipblaslt.dll" "build\bin\"
+          cp "${env:HIP_PATH}\bin\rocblas.dll" "build\bin\"
+          cp "${env:HIP_PATH}\bin\rocblas\library\*" "build\bin\rocblas\library\"
+          cp "${env:HIP_PATH}\bin\hipblaslt\library\*" "build\bin\hipblaslt\library\"
+
+      - uses: 1arp/create-a-file-action@0.4.5
+        with:
+          path: 'llama'
+          isAbsolutePath: false
+          file: 'version.txt'
+          content: |
+            name: win-hip-x64
+            version: ${{ needs.create-draft-release.outputs.version }}
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Code Signing Windows
+        shell: cmd
+        run: |
+          set PATH=%PATH%;%USERPROFILE%\.dotnet\tools
+          make codesign CODE_SIGN=true AZURE_KEY_VAULT_URI="${{ secrets.AZURE_KEY_VAULT_URI }}" AZURE_CLIENT_ID="${{ secrets.AZURE_CLIENT_ID }}" AZURE_TENANT_ID="${{ secrets.AZURE_TENANT_ID }}" AZURE_CLIENT_SECRET="${{ secrets.AZURE_CLIENT_SECRET }}" AZURE_CERT_NAME="${{ secrets.AZURE_CERT_NAME }}"
+
+      - name: Package
+        run: make package
+
+      - name: Calculate SHA512 Checksum
+        id: checksum
+        shell: pwsh
+        run: |
+          CertUtil -hashfile ./llama.tar.gz SHA512 | Select-String -Pattern "^[0-9a-fA-F]+$" | Out-File sha512.txt
+          $size = (Get-Item ./llama.tar.gz).length
+          echo "sha512=$(Get-Content sha512.txt)" >> $env:GITHUB_OUTPUT
+          echo "size=$size" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-release-asset@v1.0.1
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-draft-release.outputs.upload_url }}
+          asset_path: ./llama.tar.gz
+          asset_name: llama-${{ needs.create-draft-release.outputs.version }}-bin-win-hip-x64.tar.gz
+          asset_content_type: application/gzip
+
   ## Read matrix outputs
   read:
     runs-on: ubuntu-latest
@@ -679,9 +805,10 @@ jobs:
 
   create-checksum-file:
     runs-on: ubuntu-20-04
+    if: always() && needs.read.result == 'success' && needs.create-draft-release.result == 'success'
     permissions:
       contents: write
-    needs: [read, create-draft-release, build-hip-linux]
+    needs: [read, create-draft-release, build-hip-linux, build-hip-windows]
     steps:
       - name: Download cuda dependencies from s3 and create checksum
         run: |
@@ -707,10 +834,19 @@ jobs:
             "- url: llama-\($version)-\($key).tar.gz\n  sha512: >-\n    \($sha512[$key])\n  size: \($size[$key])"
           ' >> checksum.yml
 
-          echo "- url: llama-${version}-bin-linux-hip-x64.tar.gz" >> checksum.yml
-          echo "  sha512: >-" >> checksum.yml
-          echo "    ${{ needs.build-hip-linux.outputs.sha512 }}" >> checksum.yml
-          echo "  size: ${{ needs.build-hip-linux.outputs.size }}" >> checksum.yml
+          if [ "${{ needs.build-hip-linux.result }}" == "success" ]; then
+            echo "- url: llama-${version}-bin-linux-hip-x64.tar.gz" >> checksum.yml
+            echo "  sha512: >-" >> checksum.yml
+            echo "    ${{ needs.build-hip-linux.outputs.sha512 }}" >> checksum.yml
+            echo "  size: ${{ needs.build-hip-linux.outputs.size }}" >> checksum.yml
+          fi
+
+          if [ "${{ needs.build-hip-windows.result }}" == "success" ]; then
+            echo "- url: llama-${version}-bin-win-hip-x64.tar.gz" >> checksum.yml
+            echo "  sha512: >-" >> checksum.yml
+            echo "    ${{ needs.build-hip-windows.outputs.sha512 }}" >> checksum.yml
+            echo "  size: ${{ needs.build-hip-windows.outputs.size }}" >> checksum.yml
+          fi
 
           echo "- url: cudart-llama-bin-linux-cu13.0-x64.tar.gz" >> checksum.yml
           echo "  sha512: >-" >> checksum.yml
