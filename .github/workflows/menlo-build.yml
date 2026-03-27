@@ -592,6 +592,79 @@ jobs:
           security delete-keychain signing_temp.keychain
 
 
+  build-hip-linux:
+    runs-on: ubuntu-22.04
+    container: rocm/dev-ubuntu-22.04:6.2
+    needs: [create-draft-release]
+    timeout-minutes: 270
+    permissions:
+      contents: write
+    outputs:
+      sha512: ${{ steps.checksum.outputs.sha512 }}
+      size: ${{ steps.checksum.outputs.size }}
+    steps:
+      - name: Clone
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Replace our Makefile
+        run: cat menlo/Makefile | tee Makefile
+
+      - name: Install tools
+        run: |
+          apt-get update -y
+          apt-get install -y ninja-build python3 python3-pip
+          pip3 install awscli
+          cd /tmp
+          wget -q https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz
+          tar -xf ccache-4.10.2-linux-x86_64.tar.xz
+          cp ccache-4.10.2-linux-x86_64/ccache /usr/bin/ccache
+          rm -rf /tmp/ccache-4.10.2-linux-x86_64.tar.xz /tmp/ccache-4.10.2-linux-x86_64
+
+      - name: Build
+        run: |
+          HIP_COMPILER=$(hipconfig -l)/clang
+          make build-lib CMAKE_EXTRA_FLAGS="\
+            -DCMAKE_HIP_COMPILER=$HIP_COMPILER \
+            -DAMDGPU_TARGETS=gfx906;gfx908;gfx90a;gfx1030;gfx1100;gfx1101;gfx1102 \
+            -DGGML_HIP=ON \
+            -DGGML_NATIVE=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLAMA_CURL=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -GNinja"
+
+      - uses: 1arp/create-a-file-action@0.4.5
+        with:
+          path: 'llama'
+          isAbsolutePath: false
+          file: 'version.txt'
+          content: |
+            name: linux-hip-x64
+            version: ${{ needs.create-draft-release.outputs.version }}
+
+      - name: Package
+        run: make package
+
+      - name: Calculate SHA512 Checksum
+        id: checksum
+        run: |
+          sha512sum ./llama.tar.gz | awk '{ print $1 }' > sha512.txt
+          size=$(stat -c%s ./llama.tar.gz)
+          echo "sha512=$(cat sha512.txt)" >> $GITHUB_OUTPUT
+          echo "size=$size" >> $GITHUB_OUTPUT
+
+      - uses: actions/upload-release-asset@v1.0.1
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-draft-release.outputs.upload_url }}
+          asset_path: ./llama.tar.gz
+          asset_name: llama-${{ needs.create-draft-release.outputs.version }}-bin-linux-hip-x64.tar.gz
+          asset_content_type: application/gzip
+
   ## Read matrix outputs
   read:
     runs-on: ubuntu-latest
@@ -608,7 +681,7 @@ jobs:
     runs-on: ubuntu-20-04
     permissions:
       contents: write
-    needs: [read, create-draft-release]
+    needs: [read, create-draft-release, build-hip-linux]
     steps:
       - name: Download cuda dependencies from s3 and create checksum
         run: |
@@ -633,6 +706,11 @@ jobs:
             (.sha512 | keys[]) as $key |
             "- url: llama-\($version)-\($key).tar.gz\n  sha512: >-\n    \($sha512[$key])\n  size: \($size[$key])"
           ' >> checksum.yml
+
+          echo "- url: llama-${version}-bin-linux-hip-x64.tar.gz" >> checksum.yml
+          echo "  sha512: >-" >> checksum.yml
+          echo "    ${{ needs.build-hip-linux.outputs.sha512 }}" >> checksum.yml
+          echo "  size: ${{ needs.build-hip-linux.outputs.size }}" >> checksum.yml
 
           echo "- url: cudart-llama-bin-linux-cu13.0-x64.tar.gz" >> checksum.yml
           echo "  sha512: >-" >> checksum.yml
