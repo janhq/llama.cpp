@@ -628,7 +628,7 @@ jobs:
           HIP_COMPILER=$(hipconfig -l)/clang
           make build-lib CMAKE_EXTRA_FLAGS="\
             -DCMAKE_HIP_COMPILER=$HIP_COMPILER \
-            -DAMDGPU_TARGETS=gfx906;gfx908;gfx90a;gfx1030;gfx1100;gfx1101;gfx1102 \
+            -DAMDGPU_TARGETS=gfx908;gfx90a;gfx942;gfx1030;gfx1100;gfx1101;gfx1102;gfx1150;gfx1151;gfx1200;gfx1201 \
             -DGGML_HIP=ON \
             -DGGML_NATIVE=OFF \
             -DBUILD_SHARED_LIBS=OFF \
@@ -735,7 +735,7 @@ jobs:
             -DCMAKE_C_COMPILER="${env:HIP_PATH}\bin\clang.exe" `
             -DCMAKE_CXX_COMPILER="${env:HIP_PATH}\bin\clang++.exe" `
             -DCMAKE_BUILD_TYPE=Release `
-            -DGPU_TARGETS="gfx906;gfx908;gfx90a;gfx1030;gfx1100;gfx1101;gfx1102" `
+            -DGPU_TARGETS="gfx908;gfx90a;gfx942;gfx1030;gfx1100;gfx1101;gfx1102;gfx1150;gfx1151;gfx1200;gfx1201" `
             -DGGML_HIP=ON `
             -DGGML_NATIVE=OFF `
             -DBUILD_SHARED_LIBS=OFF `
