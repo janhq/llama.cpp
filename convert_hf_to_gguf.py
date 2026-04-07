@@ -7472,7 +7472,7 @@ class Gemma4Model(Gemma3Model):
         special_vocab = gguf.SpecialVocab(self.dir_model, load_merges=True)
         special_vocab.add_to_gguf(self.gguf_writer)
         self.gguf_writer.add_add_space_prefix(False)
-        self.gguf_writer.add_add_bos_token(False) # already added via the chat template
+        self.gguf_writer.add_add_bos_token(True)
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
@@ -11818,10 +11818,8 @@ class LFM2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.LFM2
 
     def _add_feed_forward_length(self):
-        ff_dim = self.hparams["block_ff_dim"]
-
+        ff_dim = self.find_hparam(["block_ff_dim", "intermediate_size"])
         auto_adjust_ff_dim = self.hparams["block_auto_adjust_ff_dim"]
-        ff_dim = self.hparams["block_ff_dim"]
         ffn_dim_multiplier = self.hparams["block_ffn_dim_multiplier"]
         multiple_of = self.hparams["block_multiple_of"]
 
