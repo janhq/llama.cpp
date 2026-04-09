@@ -27,6 +27,11 @@ IBM zDNN:
         - any-glob-to-any-file:
             - ggml/include/ggml-zdnn.h
             - ggml/src/ggml-zdnn/**
+AMD ZenDNN:
+    - changed-files:
+        - any-glob-to-any-file:
+            - ggml/include/ggml-zendnn.h
+            - ggml/src/ggml-zendnn/**
 documentation:
     - changed-files:
         - any-glob-to-any-file:
@@ -68,10 +73,26 @@ android:
     - changed-files:
         - any-glob-to-any-file:
             - examples/llama.android/**
+server/webui:
+    - changed-files:
+        - all:
+            - any-glob-to-any-file:
+                - tools/server/webui/**
+                - tools/server/public/**
+            - all-globs-to-all-files:
+                - '!tools/server/webui/**'
+                - '!tools/server/public/**'
 server:
     - changed-files:
-        - any-glob-to-any-file:
-            - tools/server/**
+        - all:
+            - any-glob-to-any-file:
+                - tools/server/**
+            - all-globs-to-all-files:
+                - '!tools/server/webui/**'
+                - '!tools/server/public/**'
+
+
+
 ggml:
     - changed-files:
         - any-glob-to-any-file:
