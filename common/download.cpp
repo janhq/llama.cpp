@@ -174,7 +174,7 @@ public:
         }
         int lines_up = max_line - lines[this];
 
-        size_t bar = 55 - len;
+        size_t bar = (55 - len) * 2;
         size_t pct = (100 * current) / total;
         size_t pos = (bar * current) / total;
 
@@ -183,8 +183,8 @@ public:
         }
         std::cout << '\r' << "Downloading " << filename << " ";
 
-        for (size_t i = 0; i < bar; ++i) {
-            std::cout << (i < pos ? "—" : " ");
+        for (size_t i = 0; i < bar; i += 2) {
+            std::cout << (i + 1 < pos ? "─" : (i < pos ? "╴" : " "));
         }
         std::cout << std::setw(4) << pct << "%\033[K";
 
@@ -283,6 +283,13 @@ static int common_download_file_single_online(const std::string        & url,
     static const int max_attempts        = 3;
     static const int retry_delay_seconds = 2;
 
+    const bool file_exists = std::filesystem::exists(path);
+
+    if (file_exists && skip_etag) {
+        LOG_DBG("%s: using cached file: %s\n", __func__, path.c_str());
+        return 304; // 304 Not Modified - fake cached response
+    }
+
     auto [cli, parts] = common_http_client(url);
 
     httplib::Headers headers;
@@ -296,13 +303,6 @@ static int common_download_file_single_online(const std::string        & url,
         headers.emplace("Authorization", "Bearer " + bearer_token);
     }
     cli.set_default_headers(headers);
-
-    const bool file_exists = std::filesystem::exists(path);
-
-    if (file_exists && skip_etag) {
-        LOG_DBG("%s: using cached file: %s\n", __func__, path.c_str());
-        return 304; // 304 Not Modified - fake cached response
-    }
 
     std::string last_etag;
     if (file_exists) {
