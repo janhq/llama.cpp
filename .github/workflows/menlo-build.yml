@@ -198,14 +198,15 @@ jobs:
             vulkan: true
             ccache: true
             ccache-dir: "/home/runner/.ccache"
-          - os: "macos"
-            name: "x64"
-            runs-on: "macos-selfhosted-12"
-            cmake-flags: "-DCMAKE_BUILD_RPATH=\"@loader_path\" -DGGML_METAL=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=ON"
-            run-e2e: false
-            vulkan: false
-            ccache: false
-            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
+          # DEPRECATED: macos-selfhosted-12 (Intel x64) runner is being phased out.
+          # - os: "macos"
+          #   name: "x64"
+          #   runs-on: "macos-selfhosted-12"
+          #   cmake-flags: "-DCMAKE_BUILD_RPATH=\"@loader_path\" -DGGML_METAL=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=ON"
+          #   run-e2e: false
+          #   vulkan: false
+          #   ccache: false
+          #   ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
           - os: "macos"
             name: "arm64"
             runs-on: "macos-selfhosted-14-arm64"
