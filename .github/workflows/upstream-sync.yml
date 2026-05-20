@@ -80,7 +80,7 @@ jobs:
           PR_BODY="Updates dev branch with latest release ($LATEST_TAG) from ggml-org/llama.cpp"
 
           gh pr create \
-            --repo menloresearch/llama.cpp \
+            --repo ${{ github.repository }} \
             --title "$PR_TITLE" \
             --body "$PR_BODY" \
             --head "$BRANCH_NAME" \
@@ -94,7 +94,7 @@ jobs:
             exit 0
           fi
 
-          PR_NUMBER=$(gh pr list --repo menloresearch/llama.cpp --head "$BRANCH_NAME" --json number --jq '.[0].number')
+          PR_NUMBER=$(gh pr list --repo ${{ github.repository }} --head "$BRANCH_NAME" --json number --jq '.[0].number')
 
           if [[ -z "$PR_NUMBER" ]]; then
             echo "Failed to get PR number"
@@ -112,7 +112,10 @@ jobs:
         run: |
           echo "Waiting for CI checks to complete..."
           while true; do
-            ci_completed=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json completedAt --jq '.[].completedAt')
+            # gh pr checks exits non-zero when checks are pending (8), failing (1),
+            # or absent (1 "no checks reported"). We inspect the JSON ourselves, so
+            # don't let those exit codes abort the step under `set -e`.
+            ci_completed=$(gh pr checks $PR_NUMBER --repo ${{ github.repository }} --json completedAt --jq '.[].completedAt' || true)
             
             # If there are no CI checks, proceed with merge
             if [[ -z "$ci_completed" ]]; then
@@ -126,7 +129,7 @@ jobs:
               sleep 60
             else
               echo "CI has completed, checking states..."
-              ci_states=$(gh pr checks $PR_NUMBER --repo menloresearch/llama.cpp --json state --jq '.[].state')
+              ci_states=$(gh pr checks $PR_NUMBER --repo ${{ github.repository }} --json state --jq '.[].state' || true)
               if echo "$ci_states" | grep -vqE "SUCCESS|SKIPPED"; then
                 echo "CI failed, exiting..."
                 echo "SKIP_MERGE=true" >> $GITHUB_ENV
@@ -144,7 +147,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PAT_SERVICE_ACCOUNT }}
         run: |
           echo "Attempting to merge PR #$PR_NUMBER..."
-          gh pr merge $PR_NUMBER --repo menloresearch/llama.cpp --merge --admin || MERGE_FAILED=$?
+          gh pr merge $PR_NUMBER --repo ${{ github.repository }} --merge --admin || MERGE_FAILED=$?
 
           if [ ! -z "$MERGE_FAILED" ]; then
             echo "Failed to merge PR. Error code: $MERGE_FAILED"
