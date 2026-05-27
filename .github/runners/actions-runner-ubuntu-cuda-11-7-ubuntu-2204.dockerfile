@@ -73,7 +73,7 @@ RUN adduser --disabled-password --gecos "" --uid $RUNNER_UID runner \
 
 ENV HOME=/home/runner
 
-ARG RUNNER_VERSION=2.328.0
+ARG RUNNER_VERSION=2.334.0
 
 # cd into the user directory, download and unzip the github actions runner
 RUN cd /home/runner && mkdir actions-runner && cd actions-runner \
