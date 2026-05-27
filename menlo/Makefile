@@ -23,13 +23,13 @@ all:
 # Build the Cortex engine
 build-lib:
 ifeq ($(OS),Windows_NT)
-	@powershell -Command "cmake -B build $(CMAKE_EXTRA_FLAGS) -DLLAMA_BUILD_TESTS=OFF;"
+	@powershell -Command "cmake -B build $(CMAKE_EXTRA_FLAGS) -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_UI=OFF;"
 	@powershell -Command "cmake --build build --config Release -j4 --target llama-server;"
 else ifeq ($(shell uname -s),Linux)
-	@cmake -B build $(CMAKE_EXTRA_FLAGS) -DLLAMA_BUILD_TESTS=OFF
+	@cmake -B build $(CMAKE_EXTRA_FLAGS) -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_UI=OFF
 	@cmake --build build --config Release -j4 --target llama-server;
 else
-	@cmake -B build $(CMAKE_EXTRA_FLAGS) -DLLAMA_BUILD_TESTS=OFF
+	@cmake -B build $(CMAKE_EXTRA_FLAGS) -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_UI=OFF
 	@cmake --build build --config Release -j4 --target llama-server;
 endif
 

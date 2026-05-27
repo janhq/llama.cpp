@@ -72,7 +72,7 @@ RUN adduser --disabled-password --gecos "" --uid $RUNNER_UID runner \
 
 ENV HOME=/home/runner
 
-ARG RUNNER_VERSION=2.328.0
+ARG RUNNER_VERSION=2.334.0
 
 # cd into the user directory, download and unzip the github actions runner
 RUN cd /home/runner && mkdir actions-runner && cd actions-runner \
@@ -85,8 +85,8 @@ ADD --chown=runner:runner ./start.sh /home/runner/start.sh
 
 RUN chmod 755 /home/runner/start.sh
 
-# Add /usr/local/cuda-11.7/compat to LD_LIBRARY_PATH
-ENV LD_LIBRARY_PATH=/usr/local/cuda-11.7/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
+# Add /usr/local/cuda-12.4/compat to LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.4/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 
 ENTRYPOINT ["/bin/bash", "/home/runner/start.sh"]
 
