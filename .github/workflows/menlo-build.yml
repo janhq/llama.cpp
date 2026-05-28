@@ -406,6 +406,13 @@ jobs:
           ccache -V
           rm -rf /tmp/ccache-4.10.2-linux-x86_64.tar.xz /tmp/ccache-4.10.2-linux-x86_64
 
+      - name: Install NCCL (Linux CUDA)
+        if: runner.os == 'Linux' && contains(matrix.runs-on, 'cuda')
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y libnccl2 libnccl-dev || \
+            echo "::warning::libnccl-dev not available via apt; multi-GPU allreduce will fall back to the internal pipeline"
+
       - name: Set up homebrew path on macOS
         if: runner.os == 'macOS'
         run: |
