@@ -915,6 +915,8 @@ class ModelBase:
                             gguf.MODEL_TENSOR.SSM_CONV1D_Q,
                             gguf.MODEL_TENSOR.SSM_CONV1D_K,
                             gguf.MODEL_TENSOR.SSM_CONV1D_V,
+                            # DSA indexer weights should be F32
+                            gguf.MODEL_TENSOR.INDEXER_PROJ,
                         )
                     )
                     or new_name[-7:] not in (".weight", ".lora_a", ".lora_b")
@@ -1138,7 +1140,7 @@ class TextModel(ModelBase):
         # Skip multimodal tensors
         if name.startswith(("mlp", "vit.", "vpm.", "siglip2.", "conformer.", "merger.", "resampler.", "sound_encoder.", "sound_projection.", "speech_embeddings.")) \
                 or "visual." in name or "vision." in name or "audio." in name or "talker." in name \
-                or "vision_" in name or "audio_" in name or "sam_model" in name \
+                or "vision_" in name or "audio_" in name \
                 or "token2wav." in name or "code2wav." in name \
                 or "projector." in name or "pre_mm_projector_norm" in name \
                 or "image_newline" in name or "view_seperator" in name \

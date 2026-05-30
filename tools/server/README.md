@@ -33,7 +33,6 @@ For the full list of features, please refer to [server's changelog](https://gith
 | -------- | ----------- |
 | `-h, --help, --usage` | print usage and exit |
 | `--version` | show version and build info |
-| `--license` | show source code license and dependencies |
 | `-cl, --cache-list` | show list of models in cache |
 | `--completion-bash` | print source-able bash completion script for llama.cpp |
 | `-t, --threads N` | number of CPU threads to use during generation (default: -1)<br/>(env: LLAMA_ARG_THREADS) |
@@ -201,7 +200,7 @@ For the full list of features, please refer to [server's changelog](https://gith
 | `--embedding, --embeddings` | restrict to only support embedding use case; use only with dedicated embedding models (default: disabled)<br/>(env: LLAMA_ARG_EMBEDDINGS) |
 | `--rerank, --reranking` | enable reranking endpoint on server (default: disabled)<br/>(env: LLAMA_ARG_RERANKING) |
 | `--api-key KEY` | API key to use for authentication, multiple keys can be provided as a comma-separated list (default: none)<br/>(env: LLAMA_API_KEY) |
-| `--api-key-file FNAME` | path to file containing API keys (default: none) |
+| `--api-key-file FNAME` | path to file containing API keys, one per line (default: none)<br/>(env: LLAMA_ARG_API_KEY_FILE) |
 | `--ssl-key-file FNAME` | path to file a PEM-encoded SSL private key<br/>(env: LLAMA_ARG_SSL_KEY_FILE) |
 | `--ssl-cert-file FNAME` | path to file a PEM-encoded SSL certificate<br/>(env: LLAMA_ARG_SSL_CERT_FILE) |
 | `--chat-template-kwargs STRING` | sets additional params for the json template parser, must be a valid json object string, e.g. '{"key1":"value1","key2":"value2"}'<br/>(env: LLAMA_ARG_CHAT_TEMPLATE_KWARGS) |
@@ -1662,11 +1661,19 @@ Listing all models in cache. The model metadata will also include a field to ind
 {
   "data": [{
     "id": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
-    "in_cache": true,
     "path": "/Users/REDACTED/Library/Caches/llama.cpp/ggml-org_gemma-3-4b-it-GGUF_gemma-3-4b-it-Q4_K_M.gguf",
     "status": {
       "value": "loaded",
       "args": ["llama-server", "-ctx", "4096"]
+    },
+    "architecture": {
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "output_modalities": [
+        "text"
+      ]
     },
     ...
   }]
@@ -1674,11 +1681,10 @@ Listing all models in cache. The model metadata will also include a field to ind
 ```
 
 Note:
-1. For a local GGUF (stored offline in a custom directory), the model object will have `"in_cache": false`.
-2. Adding `?reload=1` to the query params will refresh the list of models. The behavior is as follow:
+1. Adding `?reload=1` to the query params will refresh the list of models. The behavior is as follow:
     - If a model is running but updated or removed from the source, it will be unloaded
     - If a model is not running, it will be added or updated according to the source
-3. When the model is loaded, the info from `/v1/models` is forwarded to router's `/v1/models`. This includes metadata about the model and the runtime instance.
+2. When the model is loaded, the info from `/v1/models` is forwarded to router's `/v1/models`. This includes metadata about the model and the runtime instance.
 
 The `status` object can be:
 
