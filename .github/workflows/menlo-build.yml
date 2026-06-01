@@ -555,6 +555,7 @@ jobs:
           cmake -G "Unix Makefiles" -B build -S . `
             -DCMAKE_C_COMPILER="$hipPathUnix/bin/clang.exe" `
             -DCMAKE_CXX_COMPILER="$hipPathUnix/bin/clang++.exe" `
+            -DCMAKE_PREFIX_PATH="$hipPathUnix" `
             -DCMAKE_CXX_FLAGS="-I$($PWD.Path.Replace('\', '/'))/opt/rocm-${env:ROCM_VERSION}/include/ -Wno-ignored-attributes -Wno-nested-anon-types" `
             -DCMAKE_BUILD_TYPE=Release `
             -DLLAMA_CURL=OFF `
