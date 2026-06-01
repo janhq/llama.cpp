@@ -27,6 +27,8 @@ on:
 
 env:
   VULKAN_VERSION: 1.4.328.1
+  ROCM_VERSION: 7.2.1
+  HIPSDK_INSTALLER_VERSION: "26.Q1"
 
 jobs:
   create-draft-release:
@@ -198,6 +200,15 @@ jobs:
             vulkan: true
             ccache: true
             ccache-dir: "/home/runner/.ccache"
+          - os: "linux"
+            name: "hip-common_cpus-x64"
+            runs-on: "ubuntu-22-04"
+            cmake-flags: "-DLLAMA_CURL=OFF -DGGML_HIP=ON -DHIP_PLATFORM=amd -DGPU_TARGETS='gfx908;gfx90a;gfx942;gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1150;gfx1200;gfx1201' -DGGML_HIP_ROCWMMA_FATTN=ON -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_RPATH='$ORIGIN' -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE='Release'"
+            run-e2e: false
+            vulkan: false
+            rocm: true
+            ccache: true
+            ccache-dir: "/home/runner/.ccache"
           # DEPRECATED: macos-selfhosted-12 (Intel x64) runner is being phased out.
           # - os: "macos"
           #   name: "x64"
@@ -360,6 +371,16 @@ jobs:
             ccache: true
             ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
           - os: "win"
+            name: "hip-common_cpus-x64"
+            runs-on: "windows-cuda-11-7"
+            cmake-flags: ""
+            run-e2e: false
+            vulkan: false
+            rocm: true
+            gpu-targets: "gfx1150;gfx1151;gfx1200;gfx1201;gfx1100;gfx1101;gfx1102;gfx1030;gfx1031;gfx1032"
+            ccache: false
+            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
+          - os: "win"
             name: "arm64"
             runs-on: "windows-11-arm"
             cmake-flags: "-DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=ON -DGGML_NATIVE=OFF -DCMAKE_TOOLCHAIN_FILE='cmake/arm64-windows-llvm.cmake'  -DGGML_OPENMP=OFF -DLLAMA_BUILD_SERVER=ON -DCMAKE_BUILD_TYPE='Release' -GNinja"
@@ -432,7 +453,49 @@ jobs:
           sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
           sudo apt-get update -y
           sudo apt-get install -y build-essential vulkan-sdk
-      
+
+      - name: Prepare ROCm SDK Linux
+        if: ${{ matrix.rocm && (matrix.os == 'linux') }}
+        run: |
+          sudo apt-get install -y build-essential git cmake wget
+          sudo mkdir --parents --mode=0755 /etc/apt/keyrings
+          wget https://repo.radeon.com/rocm/rocm.gpg.key -O - | \
+            gpg --dearmor | sudo tee /etc/apt/keyrings/rocm.gpg > /dev/null
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/${ROCM_VERSION} jammy main" \
+            | sudo tee /etc/apt/sources.list.d/rocm.list
+          printf 'Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600\n' \
+            | sudo tee /etc/apt/preferences.d/rocm-pin-600
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev rocm-hip-sdk rocwmma-dev
+          # HIP compiler can't be passed via cmake-flags (make would re-expand $(...)), so export it.
+          echo "HIPCXX=$(hipconfig -l)/clang" >> $GITHUB_ENV
+          echo "HIP_PATH=$(hipconfig -R)" >> $GITHUB_ENV
+          echo "/opt/rocm/bin" >> $GITHUB_PATH
+
+      - name: Cache ROCm install (Windows)
+        id: cache-rocm-win
+        if: ${{ matrix.rocm && (matrix.os == 'win') }}
+        uses: actions/cache@v4
+        with:
+          path: 'C:\Program Files\AMD\ROCm'
+          key: cache-gha-rocm-${{ env.HIPSDK_INSTALLER_VERSION }}-${{ runner.os }}
+
+      - name: Prepare ROCm SDK Windows
+        if: ${{ matrix.rocm && (matrix.os == 'win') }}
+        run: |
+          # rocWMMA headers ship only in the Linux .deb; extract them for the FATTN build.
+          curl -o rocwmma.deb "https://repo.radeon.com/rocm/apt/${env:ROCM_VERSION}/pool/main/r/rocwmma-dev/rocwmma-dev_2.2.0.70201-81~24.04_amd64.deb"
+          7z x rocwmma.deb
+          7z x data.tar
+          if ("${{ steps.cache-rocm-win.outputs.cache-hit }}" -ne "true") {
+            Invoke-WebRequest -Uri "https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-${env:HIPSDK_INSTALLER_VERSION}-Win11-For-HIP.exe" -OutFile "${env:RUNNER_TEMP}\rocm-install.exe"
+            $proc = Start-Process "${env:RUNNER_TEMP}\rocm-install.exe" -ArgumentList '-install' -NoNewWindow -PassThru
+            $completed = $proc.WaitForExit(600000)
+            if (-not $completed) { $proc.Kill(); throw "ROCm install timed out" }
+          }
+          $hipPath = (Resolve-Path 'C:\Program Files\AMD\ROCm\*\bin\clang.exe' | Split-Path | Split-Path)
+          Add-Content $env:GITHUB_ENV "HIP_PATH=$hipPath"
+
       - name: Install Clang for Windows Arm64
         if: ${{ matrix.os == 'win' && matrix.name == 'arm64' }}
         run: |
@@ -479,8 +542,33 @@ jobs:
 
       - name: Build
         id: build-and-test
+        if: ${{ !(matrix.os == 'win' && matrix.rocm) }}
         run: |
           make build-lib CMAKE_EXTRA_FLAGS="${{ matrix.cmake-flags }}"
+
+      - name: Build (Windows ROCm)
+        if: ${{ matrix.os == 'win' && matrix.rocm }}
+        run: |
+          cmake -G "Unix Makefiles" -B build -S . `
+            -DCMAKE_C_COMPILER="${env:HIP_PATH}\bin\clang.exe" `
+            -DCMAKE_CXX_COMPILER="${env:HIP_PATH}\bin\clang++.exe" `
+            -DCMAKE_CXX_FLAGS="-I$($PWD.Path.Replace('\', '/'))/opt/rocm-${env:ROCM_VERSION}/include/ -Wno-ignored-attributes -Wno-nested-anon-types" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DLLAMA_CURL=OFF `
+            -DLLAMA_BUILD_TESTS=OFF `
+            -DLLAMA_BUILD_UI=OFF `
+            -DGGML_BACKEND_DL=ON `
+            -DGGML_CPU_ALL_VARIANTS=ON `
+            -DGGML_NATIVE=OFF `
+            -DBUILD_SHARED_LIBS=ON `
+            -DGPU_TARGETS="${{ matrix.gpu-targets }}" `
+            -DGGML_HIP_ROCWMMA_FATTN=ON `
+            -DGGML_HIP=ON
+          cmake --build build --config Release -j ${env:NUMBER_OF_PROCESSORS} --target llama-server
+          # Bundle ROCm runtime DLLs alongside the binaries so the artifact is self-contained.
+          Copy-Item "${env:HIP_PATH}\bin\hipblas.dll","${env:HIP_PATH}\bin\hipblaslt.dll","${env:HIP_PATH}\bin\rocblas.dll" build\bin\ -ErrorAction SilentlyContinue
+          Copy-Item "${env:HIP_PATH}\bin\rocblas\library" build\bin\rocblas\library -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item "${env:HIP_PATH}\bin\hipblaslt\library" build\bin\hipblaslt\library -Recurse -Force -ErrorAction SilentlyContinue
 
       - uses: 1arp/create-a-file-action@0.4.5
         with:
