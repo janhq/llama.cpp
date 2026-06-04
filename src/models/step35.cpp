@@ -22,7 +22,9 @@ void llama_model_step35::load_arch_hparams(llama_model_loader & ml) {
 
     ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,  hparams.n_swa);
     ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA,        hparams.rope_freq_base_train_swa, false);
-    ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
+
+    ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.is_swa_impl, hparams.n_layer);
+
     ml.get_key_or_arr(LLM_KV_SWIGLU_CLAMP_EXP,   hparams.swiglu_clamp_exp,   hparams.n_layer, false);
     ml.get_key_or_arr(LLM_KV_SWIGLU_CLAMP_SHEXP, hparams.swiglu_clamp_shexp, hparams.n_layer, false);
 
@@ -292,7 +294,7 @@ llama_model_step35::graph::graph(const llama_model & model, const llm_graph_para
             cb(cur, "attn_proj", il);
         }
 
-        if (il == n_transformer_layers - 1 && inp_out_ids && cparams.embeddings_pre_norm_masked) {
+        if (il == n_transformer_layers - 1 && inp_out_ids && cparams.embeddings_nextn_masked) {
             cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
@@ -351,10 +353,10 @@ llama_model_step35::graph::graph(const llama_model & model, const llm_graph_para
 
     cur = inpL;
 
-    cb(cur, "h_pre_norm", -1);
-    res->t_h_pre_norm = cur;
+    cb(cur, "h_nextn", -1);
+    res->t_h_nextn = cur;
 
-    if (!cparams.embeddings_pre_norm_masked && inp_out_ids) {
+    if (!cparams.embeddings_nextn_masked && inp_out_ids) {
         cur = ggml_get_rows(ctx0, cur, inp_out_ids);
     }
 
@@ -539,8 +541,8 @@ llama_model_step35::graph_mtp::graph_mtp(const llama_model & model, const llm_gr
     cb(cur, "mtp_post_ffn", il);
 
     // Pre-norm hidden state: used by the AR draft loop to seed the next MTP step.
-    cb(cur, "h_pre_norm", -1);
-    res->t_h_pre_norm = cur;
+    cb(cur, "h_nextn", -1);
+    res->t_h_nextn = cur;
 
     ggml_tensor * head_norm_w = layer.nextn.shared_head_norm
             ? layer.nextn.shared_head_norm
