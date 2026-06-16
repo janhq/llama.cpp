@@ -1882,11 +1882,29 @@ static void test_lfm2_parser(const std::string & template_path, bool detailed_de
         .expect(simple_assist_msg("Use this format: [link text](url). Example: [Wikipedia](https://www.wikipedia.org)."))
         .run();
 
-    // Python tool with multiline code in string
+    // Python tool with multiline code in string: the \n in the literal decodes to a real
+    // newline, emitted as a JSON \n escape (not a doubled backslash).
     tst.test("<|tool_call_start|>[python(code=\"def hello():\\n    print('hey')\")]<|tool_call_end|>")
         .tools({ python_tool })
         .expect_tool_calls({
-            { "python", R"#({"code": "def hello():\\n    print('hey')"})#", "" }
+            { "python", R"#({"code": "def hello():\n    print('hey')"})#", "" }
+        })
+        .run();
+
+    // String escape sequences decode to their actual characters (newline + tab here),
+    // so a "write a two line file" style call produces real line breaks, not literal "\n".
+    tst.test("<|tool_call_start|>[python(code=\"First line\\nSecond line\\tindented\")]<|tool_call_end|>")
+        .tools({ python_tool })
+        .expect_tool_calls({
+            { "python", R"#({"code": "First line\nSecond line\tindented"})#", "" }
+        })
+        .run();
+
+    // Escaped quotes inside a string argument survive the round-trip.
+    tst.test("<|tool_call_start|>[python(code=\"print(\\\"hi\\\")\")]<|tool_call_end|>")
+        .tools({ python_tool })
+        .expect_tool_calls({
+            { "python", R"#({"code": "print(\"hi\")"})#", "" }
         })
         .run();
 
@@ -1933,6 +1951,10 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
             "amount": {"type": "number"},
             "date": {"type": "string"}
         }
+    })";
+
+    const char * const_schema = R"({
+        "const": "42"
     })";
 
     {
@@ -2017,6 +2039,80 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         })
             .expect_tool_calls({
                 { "python", "{\"code\": \"def hello():\\n    print(\\\"Hello, world!\\\")\\n\\nhello()\"}", {} },
+            })
+            .run();
+
+        tst.test(
+               "<tool_call>\n"
+               "<function=edit>\n"
+               "<parameter=filename>\n"
+               "foo.c\n"
+               "</parameter>\n"
+               "<parameter=oldString>\n"
+               "#iclunde\n"
+               "</parameter>\n"
+               "<parameter=newString>\n"
+               "#include\n"
+               "</parameter>\n"
+               "</function>\n"
+               "</tool_call>")
+            .enable_thinking(false)
+            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
+            .tools({
+                edit_tool
+        })
+            .expect_tool_calls({
+                { "edit", "{\"filename\": \"foo.c\", \"oldString\": \"#iclunde\", \"newString\": \"#include\"}", {} },
+            })
+            .run();
+
+        // a parameter value that itself ends in a newline (e.g. a source file with a
+        // trailing newline). The structural delimiter is "\n</parameter>\n", so the value
+        // "#include\n" renders as "...#include\n\n</parameter>\n". The trailing newline must
+        // be preserved faithfully (no stripping), and the generated grammar must admit a
+        // value ending on a delimiter prefix. Regression test for gbnf_excluding_pattern.
+        tst.test(
+               "<tool_call>\n"
+               "<function=edit>\n"
+               "<parameter=filename>\n"
+               "foo.c\n"
+               "</parameter>\n"
+               "<parameter=oldString>\n"
+               "#iclunde\n"
+               "</parameter>\n"
+               "<parameter=newString>\n"
+               "#include\n"
+               "\n"
+               "</parameter>\n"
+               "</function>\n"
+               "</tool_call>")
+            .enable_thinking(false)
+            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
+            .tools({
+                edit_tool
+        })
+            .expect_tool_calls({
+                { "edit", "{\"filename\": \"foo.c\", \"oldString\": \"#iclunde\", \"newString\": \"#include\\n\"}", {} },
+            })
+            .run();
+
+
+        // test code that starts with indent
+        tst.test(
+               "<tool_call>\n"
+               "<function=python>\n"
+               "<parameter=code>\n"
+               "    print(\"Hello, world!\")\n"
+               "</parameter>\n"
+               "</function>\n"
+               "</tool_call>")
+            .enable_thinking(false)
+            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
+            .tools({
+                python_tool
+        })
+            .expect_tool_calls({
+                { "python", "{\"code\": \"    print(\\\"Hello, world!\\\")\"}", {} },
             })
             .run();
 
@@ -3196,18 +3292,16 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         tst.test(
                "<seed:tool_call>\n"
                "<function=edit>\n"
-               "<parameter=filename>\n"
-               "foo.cpp\n"
+               "<parameter=filename>"
+               "foo.cpp"
                "</parameter>\n"
                "<parameter=oldString>"
                "def foo(arg = \"14\"):\n"
                "    return arg + \"bar\"\n"
-               "\n"
                "</parameter>\n"
                "<parameter=newString>"
                "def foo(arg = \"15\"):\n"
                "    pass\n"
-               "\n"
                "</parameter>\n"
                "</function>\n"
                "</seed:tool_call>")
@@ -4926,6 +5020,20 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Llama 3.1
         auto tst = peg_tester("models/templates/meta-llama-Llama-3.1-8B-Instruct.jinja", detailed_debug);
         tst.test("Hello, world!\nWhat's up?").tools({ special_function_tool }).expect(message_assist).expect_reconstruction().run();
+
+        tst.test(
+             "```json\n\"42\" \n```")
+            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
+            .json_schema(const_schema)
+            .expect_content(R"("42")")
+            .run();
+
+        tst.test(
+             "\"42\" \n")
+            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
+            .json_schema(const_schema)
+            .expect_content(R"("42")")
+            .run();
 
         // Continuation tests
         tst.test("world!\nWhat's up?")
