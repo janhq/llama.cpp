@@ -517,6 +517,10 @@ struct ggml_backend_opencl_context {
     bool has_qcom_subgroup_shuffle = false;  // specifically cl_qcom_subgroup_shuffle
     bool disable_fusion;
 
+    // ragged moe, use int to directly pass to kernel
+    cl_uint  adreno_use_moe_ragged;
+    cl_uint  adreno_moe_ragged_skip_gran;
+
     bool adreno_has_large_buffer;
     bool adreno_use_large_buffer;
     bool adreno_use_bin_kernels;
@@ -5342,6 +5346,15 @@ static ggml_backend_opencl_context * ggml_cl_init(ggml_backend_dev_t dev) {
     backend_ctx->adreno_use_large_buffer = getenv("GGML_OPENCL_ADRENO_USE_LARGE_BUFFER") != nullptr &&
                                            backend_ctx->gpu_family == GPU_FAMILY::ADRENO;
 
+    // ragged moe, unspecified or non-zero means enabled, set to 0 to disable
+    static const char * ragged_fp16_env = getenv("GGML_OPENCL_MOE_RAGGED_FP16");
+    backend_ctx->adreno_use_moe_ragged = (ragged_fp16_env == NULL) ? 1 : (atoi(ragged_fp16_env) != 0);
+
+    // ragged moe, tile-skip granularity (columns per skip-group): 8 = quarter (default),
+    // 16 = half (legacy), 32 = disabled. Override with GGML_OPENCL_MOE_RAGGED_GRAN={8,16,32}
+    static const char * ragged_gran_env = getenv("GGML_OPENCL_MOE_RAGGED_GRAN");
+    backend_ctx->adreno_moe_ragged_skip_gran = (ragged_gran_env != NULL) ? atoi(ragged_gran_env) : 8;
+
 #ifdef GGML_OPENCL_USE_ADRENO_BIN_KERNELS
     // try loading adreno binary kernels if enabled
     // if fails to load, builtin kernels will be used
@@ -6229,8 +6242,14 @@ inline bool use_adreno_kernels(const ggml_backend_opencl_context *backend_ctx, c
         threshold_ne0 = 128;
         threshold_ne1 = 128;
     }
-    return tensor->ne[0] >= threshold_ne0 && tensor->ne[1] >= threshold_ne1 &&
+    bool threashold_ok = tensor->ne[0] >= threshold_ne0 && tensor->ne[1] >= threshold_ne1 &&
             tensor->ne[2] == 1 && tensor->ne[3] == 1;
+
+    // q6_K adreno kernels requires ne1 is multiple of 128
+    if (tensor->type == GGML_TYPE_Q6_K) {
+        return threashold_ok && tensor->ne[1] % 128 == 0;
+    }
+    return threashold_ok;
 }
 
 inline bool use_adreno_moe_kernels(const ggml_backend_opencl_context *backend_ctx, const ggml_tensor *tensor) {
@@ -6260,6 +6279,19 @@ static inline bool use_flat_gemv_for_large_m_q6_K(const ggml_tensor *tensor) {
     // threshold is well above typical hidden/FFN dims, but below typical vocab sizes.
     // q6_K flat gemv is worse for smaller K; 2048 seems to be a reasonable threshold.
     // note that this forces large M weights to use LM GEMM.
+    // The noshuffle (transposed-weight) layout packs 2 rows per 32-bit texel and the
+    // gemv reads it with a ne01/2 texel stride and an exact-cover dispatch of
+    // ceil(ne01/2 / 64)*64 work-items with no store guard; the gemm uses 4-row tiles.
+    // It is therefore only correct for ne01 % 128 == 0: an odd ne01 (e.g. granitemoe
+    // lm_head [1536, 49155] -- odd vocab) truncates the texel stride, misaligning every
+    // odd column of the transposed layout (gross garbage) and dropping the last row;
+    // other non-multiples over-dispatch and write past the end of dst. Route such
+    // tensors to the flat GEMV + regular convert; the matching GEMM (ne1>1) falls back
+    // to CPU (see supports_op). All standard even-vocab/hidden dims are multiples of
+    // 128 and keep the noshuffle path.
+    if ((tensor->ne[1] % 128 != 0) && tensor->ne[2] == 1 && tensor->ne[3] == 1) {
+        return true;
+    }
     return tensor->ne[1] >= 32768 && tensor->ne[0] >= 2048 && tensor->ne[2] == 1 && tensor->ne[3] == 1;
 }
 
@@ -9763,12 +9795,30 @@ static bool ggml_backend_opencl_buffer_type_supports_backend(ggml_backend_buffer
     UNUSED(buft);
 }
 
+static size_t ggml_backend_opencl_buffer_type_get_alloc_size(ggml_backend_buffer_type_t buft, const ggml_tensor * tensor) {
+    size_t size = ggml_nbytes(tensor);
+#ifdef GGML_OPENCL_SOA_Q
+    // set_tensor carves quantized weights into per-component subbuffers (d/q,
+    // ql/qh/s/d, ...) whose origins are each rounded up to the device base
+    // alignment. When a component's size is not a multiple of the alignment
+    // (e.g. q6_K [1536,49155]: size_s = 49155*96 leaves a 96-byte gap at 128-byte
+    // alignment), the aligned carve extends past ggml_nbytes and the last
+    // subbuffer would overlap the next tensor in the pool. Reserve the worst-case
+    // carve slack: at most 5 components (q5_K), i.e. 4 aligned gaps.
+    if (ggml_is_quantized(tensor->type)) {
+        ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buft->device->context;
+        size += 4 * dev_ctx->backend_ctx->alignment;
+    }
+#endif // GGML_OPENCL_SOA_Q
+    return size;
+}
+
 static ggml_backend_buffer_type_i ggml_backend_opencl_buffer_type_interface = {
     /* .get_name         = */ ggml_backend_opencl_buffer_type_get_name,
     /* .alloc_buffer     = */ ggml_backend_opencl_buffer_type_alloc_buffer,
     /* .get_alignment    = */ ggml_backend_opencl_buffer_type_get_alignment,
     /* .get_max_size     = */ ggml_backend_opencl_buffer_type_get_max_size,
-    /* .get_alloc_size   = */ NULL,
+    /* .get_alloc_size   = */ ggml_backend_opencl_buffer_type_get_alloc_size,
     /* .is_host          = */ NULL,
 };
 
@@ -16653,6 +16703,7 @@ static cl_mem ggml_cl_mul_mat_dequant_quant_to_f16(
         ? ggml_cl_is_q4_0_soa(tensor)
         : ggml_cl_is_q8_0_soa(tensor);
 
+    cl_mem aos = nullptr;
     if (is_soa) {
         // Reconstruct full parent AoS; view's own nb[] then index it correctly.
         const ggml_tensor * parent = tensor->view_src ? tensor->view_src : tensor;
@@ -16664,7 +16715,7 @@ static cl_mem ggml_cl_mul_mat_dequant_quant_to_f16(
         const size_t parent_nbytes = (size_t) ggml_nelements(parent) / blck_size * block_bytes;
 
         cl_int err;
-        cl_mem aos = clCreateBuffer(backend_ctx->context, CL_MEM_READ_WRITE, parent_nbytes, NULL, &err);
+        aos = clCreateBuffer(backend_ctx->context, CL_MEM_READ_WRITE, parent_nbytes, NULL, &err);
         CL_CHECK(err);
 
         // large q4_0/q8_0 WEIGHTS are stored transposed and small weights
@@ -16751,9 +16802,6 @@ static cl_mem ggml_cl_mul_mat_dequant_quant_to_f16(
 
         if (extra_reconstruct) {
             *extra_reconstruct = aos;
-        } else {
-            // OpenCL retains the memobj while queued kernels reference it.
-            CL_CHECK(clReleaseMemObject(aos));
         }
     } else {
         auto * extra = (ggml_tensor_extra_cl *) tensor->extra;
@@ -16817,6 +16865,13 @@ static cl_mem ggml_cl_mul_mat_dequant_quant_to_f16(
     size_t lws[3] = { 1, 1, 1 };
     CL_CHECK(clEnqueueNDRangeKernel(backend_ctx->queue, dq_kernel, 3, NULL, gws, lws, 0, NULL, NULL));
 
+    // release the reconstructed aos if
+    //  1. it was actually reconstructed
+    //  2. the caller didn't request it to be returned
+    // src_buf may refer to aos, so we should release after this enqueue
+    if (aos && !extra_reconstruct) {
+        CL_CHECK(clReleaseMemObject(aos));
+    }
     return out;
 }
 
@@ -19333,6 +19388,8 @@ static void ggml_cl_mul_mat_id(ggml_backend_t backend, const ggml_tensor * src0,
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem),    &(backend_ctx->prealloc_total_tiles.buffer)));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne00));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne01));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_use_moe_ragged));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_moe_ragged_skip_gran));
 
                     // set thread grid
                     global_size[1] = static_cast<size_t>((ne01 + 63) / 64);
@@ -19559,6 +19616,8 @@ static void ggml_cl_mul_mat_id(ggml_backend_t backend, const ggml_tensor * src0,
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem),    &(backend_ctx->prealloc_total_tiles.buffer)));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne00));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne01));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_use_moe_ragged));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_moe_ragged_skip_gran));
 
                     // set thread grid
                     global_size[1] = static_cast<size_t>((ne01 + 63) / 64);
@@ -19735,6 +19794,8 @@ static void ggml_cl_mul_mat_id(ggml_backend_t backend, const ggml_tensor * src0,
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem),    &(backend_ctx->prealloc_total_tiles.buffer)));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne00));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne01));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_use_moe_ragged));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_moe_ragged_skip_gran));
 
                     // set thread grid
                     global_size[1] = static_cast<size_t>((ne01 + 63) / 64);
@@ -19912,6 +19973,8 @@ static void ggml_cl_mul_mat_id(ggml_backend_t backend, const ggml_tensor * src0,
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem),    &(backend_ctx->prealloc_total_tiles.buffer)));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne00));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne01));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),       &backend_ctx->adreno_use_moe_ragged));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),       &backend_ctx->adreno_moe_ragged_skip_gran));
 
                     // set thread grid
                     global_size[1] = static_cast<size_t>((ne01 + 63) / 64);
@@ -20169,6 +20232,8 @@ static void ggml_cl_mul_mat_id(ggml_backend_t backend, const ggml_tensor * src0,
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem),    &(backend_ctx->prealloc_total_tiles.buffer)));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne00));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne01));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_use_moe_ragged));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_moe_ragged_skip_gran));
 
                     // set thread grid
                     global_size[1] = static_cast<size_t>((ne01 + 63) / 64);
@@ -20347,6 +20412,8 @@ static void ggml_cl_mul_mat_id(ggml_backend_t backend, const ggml_tensor * src0,
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem),    &(backend_ctx->prealloc_total_tiles.buffer)));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne00));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne01));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_use_moe_ragged));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_moe_ragged_skip_gran));
 
                     // set thread grid
                     global_size[1] = static_cast<size_t>((ne01 + 63) / 64);
@@ -20522,6 +20589,8 @@ static void ggml_cl_mul_mat_id(ggml_backend_t backend, const ggml_tensor * src0,
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem),    &(backend_ctx->prealloc_total_tiles.buffer)));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne00));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne01));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_use_moe_ragged));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_moe_ragged_skip_gran));
 
                     // set thread grid
                     global_size[1] = static_cast<size_t>((ne01 + 63) / 64);
@@ -20705,6 +20774,8 @@ static void ggml_cl_mul_mat_id(ggml_backend_t backend, const ggml_tensor * src0,
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem),    &(backend_ctx->prealloc_total_tiles.buffer)));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne00));
                     CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(int),       &ne01));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_use_moe_ragged));
+                    CL_CHECK(clSetKernelArg(kernel, arg_idx++, sizeof(cl_uint),   &backend_ctx->adreno_moe_ragged_skip_gran));
 
                     // set thread grid
                     global_size[1] = static_cast<size_t>((ne01 + 63) / 64);
