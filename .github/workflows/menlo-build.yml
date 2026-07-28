@@ -667,7 +667,7 @@ jobs:
             .sha512 as $sha512 |
             .size as $size |
             (.sha512 | keys[]) as $key |
-            "- url: llama-\($version)-\($key).tar.gz\n  sha512: >-\n    \($sha512[$key])\n  size: \($size[$key])"
+            "- url: llama-\($version)-bin-\($key).tar.gz\n  sha512: >-\n    \($sha512[$key])\n  size: \($size[$key])"
           ' >> checksum.yml
 
           echo "- url: cudart-llama-bin-linux-cu13.0-x64.tar.gz" >> checksum.yml
